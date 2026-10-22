@@ -41,6 +41,7 @@ func SetupRoutes(
 
 	// Initialize services
 	authService := services.NewAuthService(logger, userRepo)
+	sessionService := services.NewSessionService(logger, repositories.NewSessionRepo(db))
 	chatService := services.NewChatService(db, logger, chatRepo, participantRepo, messageRepo, envelopeRepo, unreadMessageRepo, repositories.NewMessageReceiptRepo(db), fileStorage)
 	contactService := services.NewContactService(logger, contactRepo)
 	attachmentService := services.NewAttachmentService(db, logger, attachmentRepo, attachmentEnvelopeRepo, messageRepo, chatRepo, participantRepo, fileStorage)
@@ -50,30 +51,25 @@ func SetupRoutes(
 	fcmService := services.NewFCMService(logger, fcmTokenRepo, cfg.FCMCredentialsPath)
 	pushService.SetFCMService(fcmService)
 	groupService := services.NewGroupService(db, logger, chatRepo, participantRepo, messageRepo, unreadMessageRepo, userRepo, fileStorage)
-	pinnedMessageRepo := repositories.NewPinnedMessageRepo(db)
-	pinService := services.NewPinService(db, logger, pinnedMessageRepo, messageRepo, envelopeRepo, chatRepo, participantRepo, userRepo)
-	appReleaseRepo := repositories.NewAppReleaseRepo(db)
-	appReleaseService := services.NewAppReleaseService(logger, appReleaseRepo)
+	pinService := services.NewPinService(db, logger, repositories.NewPinnedMessageRepo(db), messageRepo, envelopeRepo, chatRepo, participantRepo, userRepo)
+	appReleaseService := services.NewAppReleaseService(logger, repositories.NewAppReleaseRepo(db))
 
 	tokenTTL := time.Duration(cfg.JWTExpiryDays) * 24 * time.Hour
+	requireAuth := jwtMiddleware(secret, logger, tokenTTL, sessionService)
+
+	backfillFavoritesChats(logger, userRepo, chatService)
 
 	// Initialize handlers
-	// Backfill the "Saved Messages" self-chat for every existing user. Idempotent
-	// thanks to the (user1_id, user2_id) unique constraint: re-runs do nothing.
-	// Runs synchronously at startup; for our user base (<10k) it's instant.
-	if userIDs, err := userRepo.AllUserIDs(context.Background()); err != nil {
-		logger.Warn("favorites backfill: failed to enumerate users", zap.Error(err))
-	} else {
-		chatService.EnsureFavoritesChatsForAllUsers(context.Background(), userIDs)
-	}
-
-	authH := newAuthHandler(authService, userService, chatService, secret, tokenTTL)
+	authH := newAuthHandler(authHandlerDeps{
+		Auth: authService, Users: userService, Chats: chatService, Sessions: sessionService,
+		Logger: logger, Secret: secret, TokenTTL: tokenTTL,
+	})
 	chatH := newChatHandler(chatService, userService, fileStorage)
 	chatH.SetGroupService(groupService)
 	chatH.SetAttachmentService(attachmentService)
 	profileH := newProfileHandler(userService, contactService, logger)
 	userH := newUserHandler(userService)
-	wsH := newWebSocketHandler(chatService, presenceService, pushService, userService, logger, fileStorage)
+	wsH := newWebSocketHandler(chatService, presenceService, pushService, userService, logger, fileStorage, cfg.AllowedOrigins)
 	wsH.SetGroupService(groupService, participantRepo)
 	wsH.SetAttachmentService(attachmentService)
 	wsH.SetUnreadMessageRepo(unreadMessageRepo)
@@ -106,7 +102,7 @@ func SetupRoutes(
 	router.POST("/api/auth/login", authH.LoginAPI)
 
 	// Attachment download — JWT required (presigned URLs are the primary access method)
-	router.GET("/api/attachments/:id", jwtMiddleware(secret, logger, tokenTTL), attachH.DownloadAttachment)
+	router.GET("/api/attachments/:id", requireAuth, attachH.DownloadAttachment)
 
 	// Public avatar endpoints
 	router.GET("/api/avatars/:user_id", userH.GetAvatar)
@@ -123,14 +119,14 @@ func SetupRoutes(
 	router.POST("/api/admin/releases", releaseH.CreateRelease)
 
 	// WebSocket endpoint with JWT middleware
-	router.GET("/ws", jwtMiddleware(secret, logger, tokenTTL), wsH.HandleWebSocket)
+	router.GET("/ws", requireAuth, wsH.HandleWebSocket)
 
 	// Protected attachment endpoint (DELETE requires JWT)
-	router.DELETE("/api/attachments/:id", jwtMiddleware(secret, logger, tokenTTL), attachH.DeleteAttachment)
+	router.DELETE("/api/attachments/:id", requireAuth, attachH.DeleteAttachment)
 
 	// Protected API routes (JWT required)
 	api := router.Group("/api")
-	api.Use(jwtMiddleware(secret, logger, tokenTTL))
+	api.Use(requireAuth)
 	registerAuthRoutes(api, authH)
 	registerChatRoutes(api, chatH, attachH, pinH, wsH)
 	registerProfileRoutes(api, profileH)
@@ -139,6 +135,19 @@ func SetupRoutes(
 	registerGroupRoutes(api, groupH)
 
 	return wsH.Close, nil
+}
+
+// backfillFavoritesChats creates the "Saved Messages" self-chat for every
+// existing user. Idempotent thanks to the (user1_id, user2_id) unique
+// constraint: re-runs do nothing. Runs synchronously at startup; for our user
+// base (<10k) it's instant.
+func backfillFavoritesChats(logger *zap.Logger, userRepo *repositories.UserRepo, chatService *services.ChatService) {
+	userIDs, err := userRepo.AllUserIDs(context.Background())
+	if err != nil {
+		logger.Warn("favorites backfill: failed to enumerate users", zap.Error(err))
+		return
+	}
+	chatService.EnsureFavoritesChatsForAllUsers(context.Background(), userIDs)
 }
 
 func registerAuthRoutes(api *gin.RouterGroup, h *authHandler) {

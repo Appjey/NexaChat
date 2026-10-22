@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"go.uber.org/zap"
 )
 
 // authHandler handles HTTP requests for authentication (register, login, logout).
@@ -20,18 +22,34 @@ type authHandler struct {
 	authService *services.AuthService
 	userService *services.UserService
 	chatService *services.ChatService
+	sessions    *services.SessionService
+	logger      *zap.Logger
 	secret      []byte
 	tokenTTL    time.Duration
 }
 
+// authHandlerDeps bundles the collaborators of authHandler so the constructor
+// doesn't grow a positional parameter per service.
+type authHandlerDeps struct {
+	Auth     *services.AuthService
+	Users    *services.UserService
+	Chats    *services.ChatService
+	Sessions *services.SessionService
+	Logger   *zap.Logger
+	Secret   []byte
+	TokenTTL time.Duration
+}
+
 // newAuthHandler creates a new authHandler.
-func newAuthHandler(authService *services.AuthService, userService *services.UserService, chatService *services.ChatService, secret []byte, tokenTTL time.Duration) *authHandler {
+func newAuthHandler(d authHandlerDeps) *authHandler {
 	return &authHandler{
-		authService: authService,
-		userService: userService,
-		chatService: chatService,
-		secret:      secret,
-		tokenTTL:    tokenTTL,
+		authService: d.Auth,
+		userService: d.Users,
+		chatService: d.Chats,
+		sessions:    d.Sessions,
+		logger:      d.Logger,
+		secret:      d.Secret,
+		tokenTTL:    d.TokenTTL,
 	}
 }
 
@@ -55,14 +73,21 @@ func generateJTI() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-// generateJWT creates a JWT token with proper security claims
-func (h *authHandler) generateJWT(userID uint) (string, error) {
-	return issueJWT(h.secret, userID, h.tokenTTL)
+// openSession starts a new login session for the user (one per device) and
+// mints the JWT bound to it. Used by register and login.
+func (h *authHandler) openSession(ctx context.Context, userID uint) (string, error) {
+	sessionID, err := h.sessions.Create(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	return issueJWT(h.secret, userID, sessionID, h.tokenTTL)
 }
 
-// issueJWT mints a new JWT for the given user id. Shared between the auth handler
-// (login/register) and the middleware's sliding-window refresh.
-func issueJWT(secret []byte, userID uint, ttl time.Duration) (string, error) {
+// issueJWT mints a new JWT for the given user + session. Shared between the auth
+// handler (login/register) and the middleware's sliding-window refresh, which
+// keeps the session id so the refreshed token is revoked together with the
+// session it belongs to.
+func issueJWT(secret []byte, userID, sessionID uint, ttl time.Duration) (string, error) {
 	now := time.Now()
 	jti, err := generateJTI()
 	if err != nil {
@@ -71,6 +96,7 @@ func issueJWT(secret []byte, userID uint, ttl time.Duration) (string, error) {
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"user_id": userID,
+		"sid":     sessionID,
 		"iss":     "messenger-app",
 		"aud":     "messenger-users",
 		"exp":     now.Add(ttl).Unix(),
@@ -162,7 +188,7 @@ func (h *authHandler) RegisterAPI(c *gin.Context) {
 		_ = err
 	}
 
-	tokenString, err := h.generateJWT(user.ID)
+	tokenString, err := h.openSession(c.Request.Context(), user.ID)
 	if err != nil {
 		sendInternalError(c, "Failed to generate token")
 		return
@@ -197,7 +223,7 @@ func (h *authHandler) LoginAPI(c *gin.Context) {
 		return
 	}
 
-	tokenString, err := h.generateJWT(user.ID)
+	tokenString, err := h.openSession(c.Request.Context(), user.ID)
 	if err != nil {
 		sendInternalError(c, "Failed to generate token")
 		return
@@ -246,13 +272,34 @@ func (h *authHandler) ChangePasswordAPI(c *gin.Context) {
 		return
 	}
 
+	// A password change is the user's "I think my account is compromised"
+	// lever: every other device's session is revoked so a stolen token dies
+	// here. The session that performed the change stays signed in.
+	if err := h.sessions.RevokeOthers(c.Request.Context(), userID, getSessionID(c)); err != nil {
+		h.logger.Warn("failed to revoke other sessions after password change",
+			zap.Uint("user_id", userID), zap.Error(err))
+	}
+
 	sendSuccess(c, gin.H{
 		"message": "Password changed successfully",
 	})
 }
 
-// LogoutAPI handles JSON logout
+// LogoutAPI revokes the calling session so the token stops working server-side.
+// Other devices of the same user are unaffected. Idempotent: logging out an
+// already-revoked session still answers 200 so clients can always finish their
+// local cleanup.
 func (h *authHandler) LogoutAPI(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	if err := h.sessions.Revoke(c.Request.Context(), getSessionID(c), userID); err != nil {
+		h.logger.Error("failed to revoke session on logout",
+			zap.Uint("user_id", userID), zap.Error(err))
+		sendInternalError(c, "Failed to log out")
+		return
+	}
 	sendSuccess(c, gin.H{
 		"message": "Logged out successfully",
 	})

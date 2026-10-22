@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -52,6 +53,10 @@ type webSocketHandler struct {
 	activeCalls       map[uint]activeCallInfo // userID -> active call peer
 	callsMu           sync.Mutex
 	broadcastPool     *workerPool // Limits concurrent broadcast goroutines
+	// allowedOrigins is the browser-origin allow-list for the upgrade handshake,
+	// the same list the CORS middleware uses. Nil/empty means "reject every
+	// browser origin".
+	allowedOrigins map[string]struct{}
 }
 
 // newWebSocketHandler creates a new global WebSocket handler.
@@ -62,8 +67,9 @@ func newWebSocketHandler(
 	userService *services.UserService,
 	logger *zap.Logger,
 	fileStorage storage.Storage,
+	allowedOrigins []string,
 ) *webSocketHandler {
-	return &webSocketHandler{
+	h := &webSocketHandler{
 		chatService:     chatService,
 		presenceService: presenceService,
 		pushService:     pushService,
@@ -74,6 +80,21 @@ func newWebSocketHandler(
 		activeCalls:     make(map[uint]activeCallInfo),
 		broadcastPool:   newWorkerPool(50), // 50 workers for broadcast concurrency
 	}
+	h.SetAllowedOrigins(allowedOrigins)
+	return h
+}
+
+// SetAllowedOrigins installs the Origin allow-list consulted by checkOrigin
+// during the WebSocket upgrade. Matching is case-insensitive on the whole
+// origin string (scheme + host + port), mirroring gin-contrib/cors.
+func (h *webSocketHandler) SetAllowedOrigins(origins []string) {
+	set := make(map[string]struct{}, len(origins))
+	for _, o := range origins {
+		if o = strings.TrimSpace(o); o != "" {
+			set[strings.ToLower(o)] = struct{}{}
+		}
+	}
+	h.allowedOrigins = set
 }
 
 // SetGroupService sets the group service and participant repo for group chat support.
@@ -139,9 +160,9 @@ func (h *webSocketHandler) Close(ctx context.Context) error {
 
 // HandleWebSocket handles the global WebSocket connection for a user
 func (h *webSocketHandler) HandleWebSocket(c *gin.Context) {
+	// Deliberately no query string here: it carries the JWT (?token=...).
 	h.logger.Info("WebSocket handler called",
 		zap.String("path", c.Request.URL.Path),
-		zap.String("query", c.Request.URL.RawQuery),
 	)
 
 	userID, ok := requireUserID(c)
@@ -476,16 +497,26 @@ func (h *webSocketHandler) processMessage(ctx context.Context, userID uint, msg 
 	}
 }
 
-// checkOrigin validates the WebSocket origin
+// checkOrigin validates the WebSocket upgrade against the same origin
+// allow-list the CORS middleware uses (ALLOWED_ORIGINS).
+//
+// A missing Origin header is accepted: browsers always send it on WebSocket
+// handshakes, so its absence means a non-browser client (curl, a native app
+// without a WebView), which can't be the victim of cross-site WebSocket
+// hijacking in the first place — the JWT check still applies to it.
 func (h *webSocketHandler) checkOrigin(r *http.Request) bool {
-	origin := r.Header.Get("Origin")
-	h.logger.Debug("WebSocket origin check",
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+	if _, ok := h.allowedOrigins[strings.ToLower(origin)]; ok {
+		return true
+	}
+	h.logger.Warn("WebSocket origin rejected",
 		zap.String("origin", origin),
 		zap.String("host", r.Host),
 	)
-	// In development, allow all origins
-	// TODO: In production, restrict to specific origins
-	return true
+	return false
 }
 
 // checkRateLimit enforces rate limiting per connection

@@ -70,7 +70,7 @@ messenger/
 │   ├── android/              # Capacitor Android wrapper (debug + release APK)
 │   └── electron/             # Electron desktop shell (macOS arm64 DMG)
 ├── nginx-proxy/              # Production nginx config
-├── ops/                      # SECRETS.md + E2E.md runbooks
+├── ops/                      # SECRETS.md, OBJECT-STORAGE.md, E2E.md runbooks
 ├── .github/workflows/        # CI/CD pipeline
 ├── docker-compose.yml        # Dev: postgres, minio, backend, frontend
 └── docker-compose.prod.yml   # Prod: + nginx-proxy, SSL (Certbot), Docker secrets
@@ -265,6 +265,8 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 Production stack: Nginx (reverse proxy + Let's Encrypt SSL) → Frontend (Nginx) → Backend (Distroless) → PostgreSQL + MinIO. Secrets ride on Docker Compose `secrets:` mounts under `/run/secrets/`, never in `.env`.
+
+Object storage runs on Chainguard's MinIO build (`cgr.dev/chainguard/minio`, pinned by digest) since the official `minio/minio` images were pulled from Docker Hub; the backend creates its bucket on startup, so there is no init job. Details, digest bumps and the volume-ownership note are in `ops/OBJECT-STORAGE.md`.
 
 ## Limits
 

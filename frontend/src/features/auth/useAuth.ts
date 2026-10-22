@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { endpoints } from '../../shared/api/endpoints'
-import { getAuthToken, httpGet, setAuthToken } from '../../shared/api/httpClient'
+import { getAuthToken, httpGet, httpPost, setAuthToken, UNAUTHORIZED_EVENT } from '../../shared/api/httpClient'
 import type { UserProfile } from '../../shared/api/types'
 import { clearAppLockOnLogout } from '../../shared/appLock'
 import { clearStoredAccountKey } from '../../shared/crypto/e2e'
@@ -64,43 +64,63 @@ export function useAuth() {
     }
   }, [])
 
+  // Everything that must be wiped from this device when the session ends,
+  // whether the user logged out themselves or the backend revoked the session
+  // (401 on an authenticated call → UNAUTHORIZED_EVENT).
+  const clearLocalSession = useCallback(async () => {
+    setAuthToken(undefined)
+    writeCachedProfile(null)
+    // Best-effort scrub of other per-user cached state. Keys must match those used in
+    // the consumers (ChatsPage uses `cached_chats_list`). Done here so a new login on
+    // the same device doesn't briefly flash the previous user's data.
+    try {
+      localStorage.removeItem('cached_chats_list')
+    } catch {
+      // ignore
+    }
+    // Drop the offline message cache so the next user on this device doesn't
+    // see the previous user's messages.
+    clearAllCachedMessages()
+    // Drop the E2E account_key from disk too — otherwise a new user signing in on
+    // the same device could end up using the previous user's key to encrypt their
+    // first messages (race between login and AccountKeyProvider's rehydrate).
+    await clearStoredAccountKey()
+    // Drop the in-memory peer public_key cache so a new user doesn't accidentally
+    // see "trusted" entries left over from the previous session.
+    clearPeerKeyCache()
+    // App-lock is per-account device state: the previous owner's biometrics
+    // must not unlock the next login, and the next login re-gets the offer.
+    clearAppLockOnLogout()
+    setUser(null)
+    setLoading(false)
+    initializedRef.current = false
+  }, [])
+
   const logout = useCallback(async () => {
     try {
       setLoading(true)
       await unregisterFCMDevice()
-      await httpGet(endpoints.auth.logout)
+      // Revokes this device's session server-side; other devices stay signed in.
+      await httpPost(endpoints.auth.logout)
     } catch (err) {
       console.error('Не удалось выйти из аккаунта', err)
       setError(err instanceof Error ? err.message : 'Не удалось выйти из аккаунта')
     } finally {
-      setAuthToken(undefined)
-      writeCachedProfile(null)
-      // Best-effort scrub of other per-user cached state. Keys must match those used in
-      // the consumers (ChatsPage uses `cached_chats_list`). Done here so a new login on
-      // the same device doesn't briefly flash the previous user's data.
-      try {
-        localStorage.removeItem('cached_chats_list')
-      } catch {
-        // ignore
-      }
-      // Drop the offline message cache so the next user on this device doesn't
-      // see the previous user's messages.
-      clearAllCachedMessages()
-      // Drop the E2E account_key from disk too — otherwise a new user signing in on
-      // the same device could end up using the previous user's key to encrypt their
-      // first messages (race between login and AccountKeyProvider's rehydrate).
-      await clearStoredAccountKey()
-      // Drop the in-memory peer public_key cache so a new user doesn't accidentally
-      // see "trusted" entries left over from the previous session.
-      clearPeerKeyCache()
-      // App-lock is per-account device state: the previous owner's biometrics
-      // must not unlock the next login, and the next login re-gets the offer.
-      clearAppLockOnLogout()
-      setUser(null)
-      setLoading(false)
-      initializedRef.current = false
+      await clearLocalSession()
     }
-  }, [])
+  }, [clearLocalSession])
+
+  // Session revoked behind our back (logout on another device of the same
+  // session, password change elsewhere, or a dead token): finish the local
+  // logout so the user lands on /login instead of a half-working shell that
+  // keeps failing every request.
+  useEffect(() => {
+    const onUnauthorized = () => {
+      void clearLocalSession()
+    }
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+  }, [clearLocalSession])
 
   // On mount: hydrate from the cached profile so the UI renders instantly, then refresh
   // from the API in the background. This avoids the "Loading profile…" splash on every

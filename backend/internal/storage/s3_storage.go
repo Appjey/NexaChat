@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 	"github.com/google/uuid"
 )
 
@@ -34,6 +37,7 @@ type cachedPresignedURL struct {
 type S3Storage struct {
 	client          *s3.Client
 	bucket          string
+	region          string
 	presignedExpiry time.Duration
 	presignClient   *s3.PresignClient
 	// urlCache memoises presigned URLs for the remainder of their validity window.
@@ -83,10 +87,68 @@ func NewS3Storage(config *StorageConfig) (*S3Storage, error) {
 	return &S3Storage{
 		client:          client,
 		bucket:          config.S3Bucket,
+		region:          config.S3Region,
 		presignedExpiry: time.Duration(config.S3PresignedExpiry) * time.Second,
 		presignClient:   presignClient,
 		urlCache:        make(map[string]cachedPresignedURL),
 	}, nil
+}
+
+// EnsureBucket makes sure the configured bucket exists, creating it when it
+// does not. It is idempotent and safe to run on every startup; the returned
+// bool reports whether this call created the bucket.
+//
+// This replaces the former `minio-init` one-shot compose service (which ran
+// `mc mb --ignore-existing` from the minio/mc image): the backend is the only
+// writer, so it owns provisioning of its own bucket and the stack no longer
+// needs a second MinIO-specific image just to run one command.
+func (s *S3Storage) EnsureBucket(ctx context.Context) (bool, error) {
+	_, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(s.bucket)})
+	if err == nil {
+		return false, nil
+	}
+	if !isBucketMissing(err) {
+		return false, fmt.Errorf("head bucket %q: %w", s.bucket, err)
+	}
+
+	input := &s3.CreateBucketInput{Bucket: aws.String(s.bucket)}
+	// S3 proper rejects a LocationConstraint of us-east-1 and requires it for
+	// every other region; MinIO accepts both forms.
+	if s.region != "" && s.region != "us-east-1" {
+		input.CreateBucketConfiguration = &types.CreateBucketConfiguration{
+			LocationConstraint: types.BucketLocationConstraint(s.region),
+		}
+	}
+	if _, err := s.client.CreateBucket(ctx, input); err != nil {
+		// Lost a race with another replica creating the same bucket — fine.
+		var owned *types.BucketAlreadyOwnedByYou
+		var exists *types.BucketAlreadyExists
+		if errors.As(err, &owned) || errors.As(err, &exists) {
+			return false, nil
+		}
+		return false, fmt.Errorf("create bucket %q: %w", s.bucket, err)
+	}
+	return true, nil
+}
+
+// isBucketMissing reports whether a HeadBucket error means "no such bucket" as
+// opposed to a transport/auth/permission failure. HeadBucket replies with a
+// bodyless 404, which the SDK surfaces as types.NotFound; some S3-compatible
+// servers return NoSuchBucket instead.
+func isBucketMissing(err error) bool {
+	var notFound *types.NotFound
+	var noSuchBucket *types.NoSuchBucket
+	if errors.As(err, &notFound) || errors.As(err, &noSuchBucket) {
+		return true
+	}
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		switch apiErr.ErrorCode() {
+		case "NotFound", "NoSuchBucket":
+			return true
+		}
+	}
+	return false
 }
 
 // Save stores a file in S3 and returns metadata

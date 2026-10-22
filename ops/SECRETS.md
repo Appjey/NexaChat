@@ -60,9 +60,10 @@ keep their host ownership inside the container — there's no remapping. That
 means our backend reads `/run/secrets/jwt_secret` as gid 65532, and the only
 way to grant access is to make gid 65532 the group on the host file.
 
-Postgres / MinIO / minio-init are fine either way because their entrypoints
-start as root, read the password file, then drop privileges — so they go
-through the uid 0 path.
+Postgres / MinIO are fine either way: Postgres' entrypoint starts as root,
+reads the password file, then drops privileges, and the MinIO service runs as
+root (`user: "0:0"`, see `OBJECT-STORAGE.md`) — so both go through the uid 0
+path. (The former `minio-init` job is gone; the backend creates the bucket.)
 
 Side-benefit: gid 65532 doesn't correspond to any real user on the host (no
 matching entry in `/etc/group`), so `vpmuser` (gid 1000) genuinely can't read
@@ -148,7 +149,7 @@ Comment-out or delete the following keys — they're now in `/etc/messenger/secr
 ```
 
 Keep the rest (POSTGRES_USER, POSTGRES_DB, ALLOWED_ORIGINS, MINIO_ROOT_USER,
-MINIO_BUCKET_NAME, REGISTRY, TAG, VAPID_PUBLIC_KEY, VAPID_SUBJECT, etc.) —
+STORAGE_S3_BUCKET, REGISTRY, TAG, VAPID_PUBLIC_KEY, VAPID_SUBJECT, etc.) —
 those are not sensitive.
 
 Optional but recommended: tighten the remaining `.env` since it still tells

@@ -95,11 +95,27 @@ services:
       retries: 5
 
   # MinIO S3-Compatible Object Storage
+  # The bucket is created by the backend on startup (HeadBucket -> CreateBucket,
+  # idempotent); there is no separate init job any more.
   # Accessed via nginx-proxy, no direct port exposure
   minio:
-    image: minio/minio:latest
+    # `minio/minio` and `minio/mc` were deleted from Docker Hub in September 2026
+    # and quay.io no longer serves anonymous pulls, so the stack could not start
+    # on a machine without cached images. Chainguard rebuilds MinIO from source
+    # (same `minio` binary, same /data layout, honours MINIO_ROOT_PASSWORD_FILE)
+    # and serves it anonymously. Pinned by digest because the free tier only
+    # publishes the `latest` tag; to bump, run
+    #   docker buildx imagetools inspect cgr.dev/chainguard/minio:latest
+    # and paste the top-level (multi-arch index) digest here.
+    # Pinned: RELEASE.2026-09-22T19-25-18Z, image built 2026-10-21.
+    image: cgr.dev/chainguard/minio:latest@sha256:ad134b2dd572ae0d989d6807c3e45516cc75a34883a8021db2ff04be5d1d496a
     container_name: messenger-minio
     restart: unless-stopped
+    # The image defaults to uid 65532 (nonroot); the old minio/minio image ran
+    # as root and the existing minio_data volume is root-owned. Keep running as
+    # root so the volume carries over untouched (see ops/OBJECT-STORAGE.md to
+    # switch to nonroot with a one-time chown instead).
+    user: "0:0"
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
@@ -111,35 +127,13 @@ services:
       - minio_data:/data
     networks:
       - messenger-network
+    # No `mc`/curl/grep dependency (the image has none): bash builtins only,
+    # /dev/tcp HTTP probe of MinIO's liveness endpoint expecting a 200.
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /minio/health/live HTTP/1.0\\r\\nHost: 127.0.0.1\\r\\n\\r\\n' >&3 && read -r status <&3 && [[ \"$$status\" == *' 200 '* ]]"]
       interval: 10s
       timeout: 5s
       retries: 5
-
-  # MinIO Init - creates bucket automatically
-  minio-init:
-    image: minio/mc:latest
-    container_name: messenger-minio-init
-    depends_on:
-      minio:
-        condition: service_healthy
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-messenger-uploads}
-    secrets:
-      - minio_root_password
-    networks:
-      - messenger-network
-    # Password comes from the mounted secret file, not from env (so it stays off
-    # `docker inspect` output and the host's process listing).
-    entrypoint: >
-      /bin/sh -c "
-      PASSWORD=$$(cat /run/secrets/minio_root_password);
-      mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $$PASSWORD;
-      mc mb local/$${MINIO_BUCKET_NAME} --ignore-existing;
-      exit 0;
-      "
 
   # Go Backend API
   backend:

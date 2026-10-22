@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"time"
@@ -12,6 +13,12 @@ import (
 	"go.uber.org/zap"
 )
 
+// sessionValidator answers "may this (session, user) pair still authenticate?".
+// Implemented by services.SessionService; tests substitute a stub.
+type sessionValidator interface {
+	Validate(ctx context.Context, sessionID, userID uint) error
+}
+
 // refreshTokenHeader is the response header used to send a freshly-minted token to the
 // client when the active token is approaching staleness. The frontend reads this header
 // and replaces the stored token, sliding the session forward.
@@ -19,16 +26,21 @@ const refreshTokenHeader = "X-Refresh-Token"
 
 // jwtMiddleware returns a Gin middleware for JWT token validation.
 //
+// Every token must carry a `sid` claim naming an active row in `sessions`
+// (see models.Session); `sessions.Validate` is consulted on every request so a
+// logout or password change cuts a token off long before its `exp`. Tokens
+// minted before sessions existed have no `sid` and are rejected — holders
+// simply log in again once.
+//
 // If `tokenTTL > 0` and the request carries a valid token whose `iat` is older than
-// `config.TokenRefreshThresholdSeconds`, the middleware mints a fresh token (same userID,
-// new exp + new jti) and returns it via the `X-Refresh-Token` response header. This
-// implements a sliding session: active users never see their session expire, while
-// inactive users still get the full initial TTL window (default 10 years).
-func jwtMiddleware(secret []byte, log *zap.Logger, tokenTTL time.Duration) gin.HandlerFunc {
+// `config.TokenRefreshThresholdSeconds`, the middleware mints a fresh token (same userID
+// and session, new exp + new jti) and returns it via the `X-Refresh-Token` response
+// header. This implements a sliding session: active users never see their session
+// expire, while inactive users still get the full initial TTL window (default 10 years).
+func jwtMiddleware(secret []byte, log *zap.Logger, tokenTTL time.Duration, sessions sessionValidator) gin.HandlerFunc {
 	publicPaths := map[string]bool{
 		"/api/auth/login":    true,
 		"/api/auth/register": true,
-		"/api/auth/logout":   true,
 		"/health":            true,
 	}
 
@@ -106,14 +118,33 @@ func jwtMiddleware(secret []byte, log *zap.Logger, tokenTTL time.Duration) gin.H
 		}
 		userID := uint(userIDFloat)
 
+		sidFloat, ok := claims["sid"].(float64)
+		if !ok || sidFloat <= 0 {
+			log.Warn("token without session id", zap.String("path", path), zap.Uint("user_id", userID))
+			handleUnauthorized(c)
+			return
+		}
+		sessionID := uint(sidFloat)
+		if err := sessions.Validate(c.Request.Context(), sessionID, userID); err != nil {
+			log.Warn("session rejected",
+				zap.String("path", path),
+				zap.Uint("user_id", userID),
+				zap.Uint("session_id", sessionID),
+				zap.Error(err),
+			)
+			handleUnauthorized(c)
+			return
+		}
+
 		// Sliding refresh: if the token is older than the threshold, issue a fresh one.
 		// Skip for WebSocket upgrades — the response is already a 101 handshake and any
 		// X-Refresh-Token header would be invisible to a JS WebSocket client.
 		if !isWebsocket {
-			maybeRefreshToken(c, secret, userID, tokenTTL, claims, log)
+			maybeRefreshToken(c, secret, userID, sessionID, tokenTTL, claims, log)
 		}
 
 		c.Set("user_id", userID)
+		c.Set("session_id", sessionID)
 		c.Next()
 	}
 }
@@ -124,7 +155,7 @@ func jwtMiddleware(secret []byte, log *zap.Logger, tokenTTL time.Duration) gin.H
 func maybeRefreshToken(
 	c *gin.Context,
 	secret []byte,
-	userID uint,
+	userID, sessionID uint,
 	tokenTTL time.Duration,
 	claims jwt.MapClaims,
 	log *zap.Logger,
@@ -140,7 +171,7 @@ func maybeRefreshToken(
 	if age < config.TokenRefreshThresholdSeconds() {
 		return
 	}
-	fresh, err := issueJWT(secret, userID, tokenTTL)
+	fresh, err := issueJWT(secret, userID, sessionID, tokenTTL)
 	if err != nil {
 		log.Warn("failed to mint refresh token", zap.Error(err))
 		return

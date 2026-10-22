@@ -35,6 +35,8 @@ const (
 	dbConnMaxLifetime    = time.Hour
 	dbConnMaxIdleTime    = 10 * time.Minute
 	dbSlowQueryThreshold = 200 * time.Millisecond
+	dbConnectAttempts    = 15 // ~30 s total with dbConnectRetryDelay
+	dbConnectRetryDelay  = 2 * time.Second
 	rateLimitPerSecond   = 30
 )
 
@@ -50,7 +52,7 @@ func Run() error {
 	defer log.Sync()
 
 	// Initialize storage
-	fileStorage, err := storage.NewStorage(cfg.Storage)
+	fileStorage, err := storage.NewStorage(cfg.Storage, log)
 	if err != nil {
 		return fmt.Errorf("initialize storage: %w", err)
 	}
@@ -67,7 +69,10 @@ func Run() error {
 	}
 
 	// Initialize Gin router
-	router := setupRouter(log)
+	router, err := setupRouter(log, cfg)
+	if err != nil {
+		return fmt.Errorf("setup router: %w", err)
+	}
 
 	// Setup routes with dependencies
 	wsCleanup, err := handlers.SetupRoutes(router, db, []byte(cfg.JWTSecret), fileStorage, log, cfg)
@@ -137,10 +142,27 @@ func initDatabase(dbURL string, log *zap.Logger) (*gorm.DB, error) {
 		DisableForeignKeyConstraintWhenMigrating: true,
 	}
 
+	// Retry the initial connection: under docker compose `depends_on:
+	// service_healthy` already serializes startup, but when the backend runs
+	// outside Docker (go run, IDE run configuration) it is routinely started a
+	// few seconds before Postgres finishes booting.
 	log.Info("connecting to database...")
-	db, err := gorm.Open(postgres.Open(dbURL), gormConfig)
-	if err != nil {
-		return nil, fmt.Errorf("connect to database: %w", err)
+	var db *gorm.DB
+	for attempt := 1; ; attempt++ {
+		var err error
+		db, err = gorm.Open(postgres.Open(dbURL), gormConfig)
+		if err == nil {
+			break
+		}
+		if attempt >= dbConnectAttempts {
+			return nil, fmt.Errorf("connect to database after %d attempts: %w", attempt, err)
+		}
+		log.Warn("database not ready, retrying",
+			zap.Int("attempt", attempt),
+			zap.Duration("retry_in", dbConnectRetryDelay),
+			zap.Error(err),
+		)
+		time.Sleep(dbConnectRetryDelay)
 	}
 
 	sqlDB, err := db.DB()
@@ -207,6 +229,7 @@ func runMigrations(db *gorm.DB, log *zap.Logger) error {
 		&models.PinnedMessage{},
 		&models.FCMToken{},
 		&models.AppRelease{},
+		&models.Session{},
 	); err != nil {
 		return err
 	}
@@ -232,9 +255,18 @@ func runMigrations(db *gorm.DB, log *zap.Logger) error {
 	return nil
 }
 
-func setupRouter(log *zap.Logger) *gin.Engine {
+func setupRouter(log *zap.Logger, cfg *config.Config) (*gin.Engine, error) {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
+
+	// gin.New() trusts every proxy by default, which makes c.ClientIP() return
+	// whatever the client put in X-Forwarded-For — and that IP keys the rate
+	// limiter below. Restrict trust to the reverse proxies actually in front
+	// of us (nginx containers on the Docker bridge network, or localhost in dev).
+	if err := router.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		return nil, fmt.Errorf("set trusted proxies: %w", err)
+	}
+	log.Info("trusted proxies", zap.Strings("cidrs", cfg.TrustedProxies))
 
 	// Custom logger middleware using zap
 	router.Use(ginZapLogger(log))
@@ -242,19 +274,11 @@ func setupRouter(log *zap.Logger) *gin.Engine {
 
 	// CORS — Capacitor Android WebView with androidScheme=https reports origin https://localhost.
 	// gin-contrib/cors rejects custom schemes (capacitor://), so we only need https://localhost.
-	allowedOrigins := []string{
-		"http://localhost:8080",
-		"http://localhost:5173",
-		"http://127.0.0.1:5173",
-		"https://localhost",
-	}
-	if origins := os.Getenv("ALLOWED_ORIGINS"); origins != "" {
-		allowedOrigins = strings.Split(origins, ",")
-	}
-	log.Info("CORS allowed origins", zap.Strings("origins", allowedOrigins))
+	// The same list gates the WebSocket upgrade (see webSocketHandler.checkOrigin).
+	log.Info("CORS allowed origins", zap.Strings("origins", cfg.AllowedOrigins))
 
 	router.Use(cors.New(cors.Config{
-		AllowOrigins: allowedOrigins,
+		AllowOrigins: cfg.AllowedOrigins,
 		AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders: []string{"Origin", "Content-Type", "Authorization"},
 		// Exposed so the frontend can read the rotated JWT minted by the auth middleware's
@@ -301,14 +325,20 @@ func setupRouter(log *zap.Logger) *gin.Engine {
 		c.Next()
 	})
 
-	return router
+	return router, nil
 }
 
 func ginZapLogger(log *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		path := c.Request.URL.Path
+		// The WebSocket handshake carries the JWT as ?token=... (browsers can't
+		// set Authorization on a WebSocket). Never let that query string reach
+		// the logs — a log reader would otherwise hold a valid session token.
 		query := c.Request.URL.RawQuery
+		if strings.HasPrefix(path, "/ws") {
+			query = "[redacted]"
+		}
 
 		c.Next()
 

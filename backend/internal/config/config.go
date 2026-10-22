@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"messenger/internal/secret"
 	"messenger/internal/storage"
@@ -43,6 +44,50 @@ type Config struct {
 	// 503) so accidental empty-env deploys don't expose an open-write API.
 	AdminAPIKey   string
 	JWTExpiryDays int
+	// AllowedOrigins is the browser-origin allow-list shared by the CORS
+	// middleware and the WebSocket upgrader's Origin check. Defaults cover the
+	// Vite dev server and the https://localhost origin that the Capacitor
+	// WebView and the Electron shell report; ALLOWED_ORIGINS overrides it.
+	AllowedOrigins []string
+	// TrustedProxies lists the CIDRs / IPs whose X-Forwarded-For header gin may
+	// believe when computing the client IP (which keys the per-IP rate limiter).
+	// Defaults to loopback + the RFC1918 ranges Docker bridge networks use, so
+	// the nginx containers in front of the backend are trusted but a direct
+	// client cannot spoof its IP. TRUSTED_PROXIES overrides it.
+	TrustedProxies []string
+}
+
+// Defaults for the origin allow-list and the proxy trust list. Exported as
+// functions (not package vars) so callers can't mutate the shared slices.
+func defaultAllowedOrigins() []string {
+	return []string{
+		"http://localhost:8080",
+		"http://localhost:5173",
+		"http://127.0.0.1:5173",
+		"https://localhost",
+	}
+}
+
+func defaultTrustedProxies() []string {
+	return []string{
+		"127.0.0.0/8",
+		"::1/128",
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+	}
+}
+
+// splitList parses a comma-separated env value into trimmed, non-empty items.
+// Returns nil when the value is empty so callers can fall back to defaults.
+func splitList(raw string) []string {
+	var out []string
+	for _, item := range strings.Split(raw, ",") {
+		if v := strings.TrimSpace(item); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // TokenRefreshThresholdSeconds returns the age (in seconds) at which the auth middleware
@@ -114,6 +159,16 @@ func LoadConfig() (*Config, error) {
 		}
 	}
 
+	allowedOrigins := splitList(os.Getenv("ALLOWED_ORIGINS"))
+	if len(allowedOrigins) == 0 {
+		allowedOrigins = defaultAllowedOrigins()
+	}
+
+	trustedProxies := splitList(os.Getenv("TRUSTED_PROXIES"))
+	if len(trustedProxies) == 0 {
+		trustedProxies = defaultTrustedProxies()
+	}
+
 	return &Config{
 		DBURL:              dbURL,
 		JWTSecret:          jwtSecret,
@@ -124,5 +179,7 @@ func LoadConfig() (*Config, error) {
 		FCMCredentialsPath: os.Getenv("FCM_CREDENTIALS_PATH"),
 		AdminAPIKey:        adminAPIKey,
 		JWTExpiryDays:      jwtExpiryDays,
+		AllowedOrigins:     allowedOrigins,
+		TrustedProxies:     trustedProxies,
 	}, nil
 }

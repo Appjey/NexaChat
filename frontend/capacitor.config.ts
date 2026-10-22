@@ -10,12 +10,12 @@ const config: CapacitorConfig = {
   },
   android: {
     allowMixedContent: false,
-    // Enable Chrome remote debugging (`chrome://inspect/#devices`) even on
-    // release builds. Android refuses to attach an inspector unless the app
-    // is marked debuggable OR this flag is set via JNI. We have no Play Store /
-    // closed-track distribution — every user is a tester, and the inspector is
-    // invaluable when self-update fails silently in release.
-    webContentsDebuggingEnabled: true,
+    // webContentsDebuggingEnabled is intentionally NOT set: Capacitor then
+    // enables Chrome remote debugging (`chrome://inspect/#devices`) only when
+    // the APK is debuggable, i.e. for assembleDebug. On a release build an
+    // attached inspector would expose the WebView's localStorage — auth token,
+    // E2E account_key and the decrypted message cache — to anyone with adb
+    // access to the unlocked phone.
   },
 }
 

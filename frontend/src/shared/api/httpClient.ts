@@ -4,6 +4,17 @@ const USE_PROXY = import.meta.env.VITE_USE_PROXY === 'true'
 const BASE_URL = USE_PROXY ? '' : import.meta.env.VITE_API_BASE_URL ?? ''
 const TOKEN_KEY = 'auth_token'
 const REFRESH_TOKEN_HEADER = 'X-Refresh-Token'
+/**
+ * Fired on `window` when the backend answers 401 to an authenticated request,
+ * i.e. the session was revoked (logout elsewhere, password change, admin
+ * action) or the token is otherwise dead. The token is already removed from
+ * storage by the time listeners run; useAuth reacts by clearing the in-memory
+ * user so ProtectedRoute bounces to /login.
+ */
+export const UNAUTHORIZED_EVENT = 'auth:unauthorized'
+// 401 from these means "bad credentials", not "dead session" — never log the
+// user out over them.
+const CREDENTIAL_PATHS = new Set(['/api/auth/login', '/api/auth/register'])
 // Hard ceiling for any single HTTP request. Without this, fetch() has no default timeout,
 // so a silently-dead backend (e.g. on a flaky mobile network) hangs the promise forever
 // and the UI gets stuck on "loading...". 15 seconds covers slow 3G uploads with margin.
@@ -94,6 +105,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
     if (!response.ok) {
       const errorBody = await response.text()
+      if (response.status === 401 && token && !CREDENTIAL_PATHS.has(path)) {
+        setAuthToken(undefined)
+        window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
+      }
       throw new Error(errorBody || `Request failed: ${response.status}`)
     }
 

@@ -2,12 +2,21 @@
 package storage
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"messenger/internal/secret"
+
+	"go.uber.org/zap"
 )
+
+// ensureBucketTimeout bounds the startup HeadBucket/CreateBucket round-trip.
+// Compose only starts the backend once MinIO is healthy, so a slow answer here
+// means something is actually wrong — fail fast and let the restart policy retry.
+const ensureBucketTimeout = 15 * time.Second
 
 // StorageConfig holds configuration for S3-compatible storage backend
 type StorageConfig struct {
@@ -20,8 +29,9 @@ type StorageConfig struct {
 	S3PresignedExpiry int // Presigned URL expiry in seconds
 }
 
-// NewStorage creates a new Storage instance (S3-compatible only)
-func NewStorage(config *StorageConfig) (Storage, error) {
+// NewStorage creates a new Storage instance (S3-compatible only) and makes sure
+// the configured bucket exists, creating it on first run. A nil log is allowed.
+func NewStorage(config *StorageConfig, log *zap.Logger) (Storage, error) {
 	// Validate required S3 config
 	if config.S3Bucket == "" {
 		return nil, fmt.Errorf("STORAGE_S3_BUCKET is required")
@@ -32,8 +42,28 @@ func NewStorage(config *StorageConfig) (Storage, error) {
 	if config.S3SecretKey == "" {
 		return nil, fmt.Errorf("STORAGE_S3_SECRET_KEY is required")
 	}
+	if log == nil {
+		log = zap.NewNop()
+	}
 
-	return NewS3Storage(config)
+	s3Storage, err := NewS3Storage(config)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), ensureBucketTimeout)
+	defer cancel()
+	created, err := s3Storage.EnsureBucket(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("ensure bucket: %w", err)
+	}
+	if created {
+		log.Info("Created S3 bucket", zap.String("bucket", config.S3Bucket), zap.String("endpoint", config.S3Endpoint))
+	} else {
+		log.Info("S3 bucket ready", zap.String("bucket", config.S3Bucket), zap.String("endpoint", config.S3Endpoint))
+	}
+
+	return s3Storage, nil
 }
 
 // LoadStorageConfig loads S3 storage configuration from environment variables.

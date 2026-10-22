@@ -53,6 +53,20 @@ func getUserID(c *gin.Context) (uint, bool) {
 	return userID, true
 }
 
+// getSessionID returns the session id the JWT middleware attached to the
+// request (the token's `sid` claim), or 0 when absent.
+func getSessionID(c *gin.Context) uint {
+	v, exists := c.Get("session_id")
+	if !exists {
+		return 0
+	}
+	id, ok := v.(uint)
+	if !ok {
+		return 0
+	}
+	return id
+}
+
 func requireUserID(c *gin.Context) (uint, bool) {
 	userID, exists := getUserID(c)
 	if !exists {

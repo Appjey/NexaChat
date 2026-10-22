@@ -1,11 +1,15 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
+
+	"messenger/internal/services"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -13,6 +17,22 @@ import (
 )
 
 var testSecret = []byte("test-secret-key-for-jwt-middleware-testing")
+
+// testSessionID is the session every validClaims token belongs to.
+const testSessionID = 1
+
+// allowAllSessions accepts every (session, user) pair — the middleware tests
+// below are about the JWT itself, not about revocation.
+type allowAllSessions struct{}
+
+func (allowAllSessions) Validate(context.Context, uint, uint) error { return nil }
+
+// revokedSessions rejects every session, simulating logout / password change.
+type revokedSessions struct{}
+
+func (revokedSessions) Validate(context.Context, uint, uint) error {
+	return services.ErrSessionRevoked
+}
 
 func TestMain(m *testing.M) {
 	gin.SetMode(gin.TestMode)
@@ -35,6 +55,7 @@ func validClaims(userID float64) jwt.MapClaims {
 	now := time.Now()
 	return jwt.MapClaims{
 		"user_id": userID,
+		"sid":     float64(testSessionID),
 		"iss":     "messenger-app",
 		"aud":     "messenger-users",
 		"exp":     now.Add(time.Hour).Unix(),
@@ -47,16 +68,69 @@ func validClaims(userID float64) jwt.MapClaims {
 func setupMiddlewareTest() *gin.Engine {
 	r := gin.New()
 	logger := zap.NewNop()
-	r.Use(jwtMiddleware(testSecret, logger, 0))
+	r.Use(jwtMiddleware(testSecret, logger, 0, allowAllSessions{}))
 	r.GET("/api/test", func(c *gin.Context) {
 		userID, exists := c.Get("user_id")
 		if !exists {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "user_id not set"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"user_id": userID})
+		c.JSON(http.StatusOK, gin.H{"user_id": userID, "session_id": getSessionID(c)})
 	})
 	return r
+}
+
+func TestJWTMiddleware_MissingSessionClaim(t *testing.T) {
+	r := setupMiddlewareTest()
+
+	claims := validClaims(42)
+	delete(claims, "sid")
+	token := createTestToken(t, claims, testSecret)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/test", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d (legacy token without sid must be rejected)", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestJWTMiddleware_RevokedSession(t *testing.T) {
+	r := gin.New()
+	r.Use(jwtMiddleware(testSecret, zap.NewNop(), 0, revokedSessions{}))
+	r.GET("/api/test", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+
+	token := createTestToken(t, validClaims(42), testSecret)
+	req := httptest.NewRequest(http.MethodGet, "/api/test", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d for a revoked session", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestJWTMiddleware_SessionIDInContext(t *testing.T) {
+	r := setupMiddlewareTest()
+	token := createTestToken(t, validClaims(42), testSecret)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/test", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if want := `"session_id":1`; !strings.Contains(w.Body.String(), want) {
+		t.Fatalf("body %s does not contain %s", w.Body.String(), want)
+	}
 }
 
 func TestJWTMiddleware_ValidToken(t *testing.T) {
@@ -180,16 +254,16 @@ func TestJWTMiddleware_MissingUserIDClaim(t *testing.T) {
 func TestJWTMiddleware_PublicPathSkipped(t *testing.T) {
 	r := gin.New()
 	logger := zap.NewNop()
-	r.Use(jwtMiddleware(testSecret, logger, 0))
+	r.Use(jwtMiddleware(testSecret, logger, 0, allowAllSessions{}))
 
-	// Register all public paths and prefixes.
+	// Register all public paths and prefixes. Logout is deliberately absent:
+	// it needs the token to know which session to revoke.
 	publicPaths := []struct {
 		method string
 		path   string
 	}{
 		{http.MethodPost, "/api/auth/login"},
 		{http.MethodPost, "/api/auth/register"},
-		{http.MethodPost, "/api/auth/logout"},
 		{http.MethodGet, "/health"},
 		{http.MethodGet, "/api/attachments/123"},
 		{http.MethodGet, "/api/attachments/some-file.jpg"},
@@ -256,7 +330,7 @@ func TestJWTMiddleware_MalformedAuthorizationHeader(t *testing.T) {
 func TestJWTMiddleware_SlidingRefresh(t *testing.T) {
 	r := gin.New()
 	logger := zap.NewNop()
-	r.Use(jwtMiddleware(testSecret, logger, time.Hour*24*365))
+	r.Use(jwtMiddleware(testSecret, logger, time.Hour*24*365, allowAllSessions{}))
 	r.GET("/api/test", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
@@ -283,6 +357,15 @@ func TestJWTMiddleware_SlidingRefresh(t *testing.T) {
 		if refreshed == token {
 			t.Fatal("expected a freshly-minted token distinct from the request token")
 		}
+		// The refreshed token must stay bound to the same session so revoking
+		// that session kills both the old and the refreshed token.
+		parsed, err := jwt.Parse(refreshed, func(*jwt.Token) (interface{}, error) { return testSecret, nil })
+		if err != nil {
+			t.Fatalf("parse refreshed token: %v", err)
+		}
+		if sid, _ := parsed.Claims.(jwt.MapClaims)["sid"].(float64); sid != testSessionID {
+			t.Fatalf("refreshed sid = %v, want %d", sid, testSessionID)
+		}
 	})
 
 	t.Run("fresh token is not rotated", func(t *testing.T) {
@@ -303,7 +386,7 @@ func TestJWTMiddleware_SlidingRefresh(t *testing.T) {
 
 	t.Run("refresh skipped when ttl is zero", func(t *testing.T) {
 		rNoRefresh := gin.New()
-		rNoRefresh.Use(jwtMiddleware(testSecret, logger, 0))
+		rNoRefresh.Use(jwtMiddleware(testSecret, logger, 0, allowAllSessions{}))
 		rNoRefresh.GET("/api/test", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"ok": true})
 		})
@@ -327,7 +410,7 @@ func TestJWTMiddleware_SlidingRefresh(t *testing.T) {
 func TestJWTMiddleware_WebSocketQueryToken(t *testing.T) {
 	r := gin.New()
 	logger := zap.NewNop()
-	r.Use(jwtMiddleware(testSecret, logger, 0))
+	r.Use(jwtMiddleware(testSecret, logger, 0, allowAllSessions{}))
 	r.GET("/ws", func(c *gin.Context) {
 		userID, exists := c.Get("user_id")
 		if !exists {

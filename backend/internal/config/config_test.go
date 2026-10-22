@@ -165,3 +165,59 @@ func TestLoadConfig_DirectEnvWins(t *testing.T) {
 		t.Errorf("expected env value to take precedence, got: %q", cfg.JWTSecret)
 	}
 }
+
+func TestLoadConfig_OriginAndProxyDefaults(t *testing.T) {
+	t.Setenv("DB_URL", "postgres://user:pass@localhost:5432/testdb")
+	t.Setenv("JWT_SECRET", "this-is-a-very-secure-secret-key-32+")
+	t.Setenv("ALLOWED_ORIGINS", "")
+	t.Setenv("TRUSTED_PROXIES", "")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.AllowedOrigins) == 0 {
+		t.Fatal("expected default allowed origins")
+	}
+	if cfg.AllowedOrigins[len(cfg.AllowedOrigins)-1] != "https://localhost" {
+		t.Fatalf("expected https://localhost in defaults, got %v", cfg.AllowedOrigins)
+	}
+	if len(cfg.TrustedProxies) == 0 {
+		t.Fatal("expected default trusted proxies")
+	}
+	for _, cidr := range cfg.TrustedProxies {
+		if cidr == "0.0.0.0/0" {
+			t.Fatal("defaults must not trust every proxy")
+		}
+	}
+}
+
+func TestLoadConfig_OriginAndProxyOverride(t *testing.T) {
+	t.Setenv("DB_URL", "postgres://user:pass@localhost:5432/testdb")
+	t.Setenv("JWT_SECRET", "this-is-a-very-secure-secret-key-32+")
+	t.Setenv("ALLOWED_ORIGINS", " https://a.example , https://b.example,, ")
+	t.Setenv("TRUSTED_PROXIES", "203.0.113.5, 10.1.0.0/16")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	wantOrigins := []string{"https://a.example", "https://b.example"}
+	if len(cfg.AllowedOrigins) != len(wantOrigins) {
+		t.Fatalf("origins = %v, want %v", cfg.AllowedOrigins, wantOrigins)
+	}
+	for i := range wantOrigins {
+		if cfg.AllowedOrigins[i] != wantOrigins[i] {
+			t.Fatalf("origins = %v, want %v", cfg.AllowedOrigins, wantOrigins)
+		}
+	}
+	wantProxies := []string{"203.0.113.5", "10.1.0.0/16"}
+	if len(cfg.TrustedProxies) != len(wantProxies) {
+		t.Fatalf("proxies = %v, want %v", cfg.TrustedProxies, wantProxies)
+	}
+	for i := range wantProxies {
+		if cfg.TrustedProxies[i] != wantProxies[i] {
+			t.Fatalf("proxies = %v, want %v", cfg.TrustedProxies, wantProxies)
+		}
+	}
+}
