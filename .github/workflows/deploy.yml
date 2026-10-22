@@ -1,0 +1,142 @@
+# Deploy (CD half). Run by hand for a version that release.yml has already
+# built: Actions → Deploy → "Run workflow", or
+#
+#   gh workflow run deploy.yml -f version=1.5.6
+#   gh workflow run deploy.yml -f version=1.5.6 -f min_supported=1   # optional update
+#   gh workflow run deploy.yml -f version=1.5.6 -f deploy=false      # only register the APK
+#
+# Two independent things happen, each switchable:
+#   deploy    — scp docker-compose.prod.yml + nginx-proxy/ to the VM, then
+#               `docker compose pull && up -d backend frontend` with the
+#               ghcr.io images tagged <version>.
+#   register  — POST the APK's metadata to /api/admin/releases so Android
+#               clients see the update banner on their next cold start.
+#
+# Required secrets:
+#   DEPLOY_SSH_KEY — private key authorized for DEPLOY_USER@DEPLOY_HOST
+#   ADMIN_API_KEY  — same value that's in /etc/messenger/secrets on the VM
+# Required variables (Settings → Secrets and variables → Actions → Variables):
+#   DEPLOY_HOST — IP/hostname of the production VM
+#   DEPLOY_USER — SSH login on the VM (typically a non-root deploy user)
+#   BACKEND_URL — the backend's public URL, e.g. https://example.com
+#
+# Nothing here runs on a tag push: when there is no server to deploy to, the
+# release still exists (APK, DMG, images) and this workflow is simply not run.
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy, without the v (a tag release.yml has built, e.g. 1.5.6)'
+        required: true
+      deploy:
+        description: 'Deploy the images to the production VM'
+        type: boolean
+        default: true
+      register:
+        description: 'Register the APK in the backend (update banner for Android clients)'
+        type: boolean
+        default: true
+      min_supported:
+        description: 'min_supported_version_code for the registered release (omit = the APK''s own versionCode → mandatory for every older install)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify the release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "v${{ inputs.version }}" --repo "$GITHUB_REPOSITORY" --json tagName,assets \
+            -q '"\(.tagName): \(.assets | map(.name) | join(", "))"'
+
+      # The VM holds a hand-managed copy of these files, not a git checkout;
+      # service-level config changes land together with the new images.
+      - name: Sync compose + nginx config to VM
+        if: ${{ inputs.deploy }}
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ vars.DEPLOY_HOST }}
+          username: ${{ vars.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: "docker-compose.prod.yml,nginx-proxy/"
+          target: /home/${{ vars.DEPLOY_USER }}/nothing
+          overwrite: true
+
+      - name: Deploy to production VM
+        if: ${{ inputs.deploy }}
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ vars.DEPLOY_HOST }}
+          username: ${{ vars.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd /home/${{ vars.DEPLOY_USER }}/nothing
+            # Pin the compose services to this version (TAG is read by
+            # docker-compose.prod.yml: ${REGISTRY}backend:${TAG}).
+            if grep -q '^TAG=' .env; then sed -i 's/^TAG=.*/TAG=${{ inputs.version }}/' .env; else echo 'TAG=${{ inputs.version }}' >> .env; fi
+            docker compose -f docker-compose.prod.yml pull backend frontend
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans backend frontend
+            docker compose -f docker-compose.prod.yml exec -T nginx-proxy nginx -s reload || true
+            docker image prune -f
+
+      # The APK's sha256 and size come from the GitHub Release assets the
+      # release workflow published (messenger-<v>.apk + .sha256), so this step
+      # never rebuilds anything; the changelog is the release body.
+      - name: Register release in backend
+        if: ${{ inputs.register }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BACKEND_URL: ${{ vars.BACKEND_URL }}
+          ADMIN_KEY: ${{ secrets.ADMIN_API_KEY }}
+          VERSION_NAME: ${{ inputs.version }}
+          MIN_SUPPORTED_INPUT: ${{ inputs.min_supported }}
+        run: |
+          set -euo pipefail
+          TAG="v$VERSION_NAME"
+          APK="messenger-$VERSION_NAME.apk"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$APK.sha256" --clobber
+          APK_SHA=$(awk '{print $1}' "$APK.sha256")
+          APK_SIZE=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+            -q ".assets[] | select(.name == \"$APK\") | .size")
+          CHANGELOG=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body -q .body | head -c 7000)
+          # versionCode = the run number of the release workflow that built the
+          # APK; read it off the release's workflow run so it matches the binary.
+          VERSION_CODE=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release.yml --branch "$TAG" \
+            --json number,conclusion -q '[.[] | select(.conclusion == "success")][0].number')
+          if [ -z "$VERSION_CODE" ] || [ "$VERSION_CODE" = "null" ]; then
+            echo "::error::No successful release.yml run found for $TAG" >&2
+            exit 1
+          fi
+          MIN_SUPPORTED="${MIN_SUPPORTED_INPUT:-$VERSION_CODE}"
+          APK_URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$APK"
+          echo "version_code=$VERSION_CODE min_supported=$MIN_SUPPORTED size=$APK_SIZE sha=$APK_SHA"
+          PAYLOAD=$(jq -n \
+            --arg vn "$VERSION_NAME" \
+            --argjson vc "$VERSION_CODE" \
+            --argjson ms "$MIN_SUPPORTED" \
+            --arg url "$APK_URL" \
+            --arg sha "$APK_SHA" \
+            --argjson sz "$APK_SIZE" \
+            --arg cl "$CHANGELOG" \
+            '{platform:"android", version_name:$vn, version_code:$vc, min_supported_version_code:$ms, url:$url, sha256:$sha, size_bytes:$sz, changelog:$cl}')
+          echo "Posting to $BACKEND_URL/api/admin/releases"
+          curl -fsSL --max-time 30 -X POST "$BACKEND_URL/api/admin/releases" \
+            -H "X-Admin-Key: $ADMIN_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"

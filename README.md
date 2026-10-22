@@ -233,28 +233,42 @@ Two workflows in `.github/workflows/`:
 
 No deploy here — pushing to `main` does not touch production.
 
-**`release.yml`** — runs on `git tag v*`:
+**`release.yml`** — runs on `git tag v*` and only *builds*; no server is
+touched:
 
-1. Bump `versionCode` / `versionName` in `frontend/android/app/build.gradle`
-2. Build a **signed** Android release APK (keystore stored as base64 secret)
-3. Compute SHA-256 + size, rename to `messenger-<version>.apk`
-4. Create a GitHub Release with the APK as a public asset
-5. POST the release metadata to `/api/admin/releases` so connected clients
-   pick up the update banner on their next cold start
-6. Build + push `messenger-backend:<version>` and `messenger-frontend:<version>`
+1. Parses the version from the tag (`versionCode` = the run number)
+2. Builds a **signed** Android release APK (keystore stored as base64 secret),
+   publishes `messenger-<version>.apk` + its `.sha256` to a GitHub Release
+   whose body is the annotated tag message (or the commit log)
+3. Builds the macOS arm64 desktop client on an Apple Silicon runner
+   (`Messenger-<version>-mac-arm64.dmg`, ad-hoc signed) and attaches it to the
+   same release
+4. Builds + pushes `messenger-backend:<version>` and `messenger-frontend:<version>`
    Docker images to GHCR (plus `latest`)
-7. `scp docker-compose.prod.yml + nginx-proxy/` to the production VM,
-   then SSH-deploy: `docker compose pull && up -d && nginx -s reload`
-8. A second job on an Apple Silicon runner builds the desktop client
-   (`Messenger-<version>-mac-arm64.dmg`, ad-hoc signed) and attaches it to
-   the same GitHub Release. Not registered in `/api/admin/releases` — the
-   desktop client has no self-updater
 
-Default policy: `min_supported_version_code = version_code` for the new release,
-making every release a mandatory upgrade for older installs. Override for an
-optional release: `gh workflow run release.yml -f min_supported=1`.
+**`deploy.yml`** — manual (`workflow_dispatch`), the CD half, for a version
+`release.yml` has already built:
 
-Required secrets / variables are documented in the header of `release.yml`.
+```bash
+gh workflow run deploy.yml -f version=1.5.6                    # deploy + register
+gh workflow run deploy.yml -f version=1.5.6 -f min_supported=1 # optional (non-mandatory) update
+gh workflow run deploy.yml -f version=1.5.6 -f deploy=false    # only register the APK in the backend
+```
+
+1. `scp docker-compose.prod.yml + nginx-proxy/` to the VM, pin `TAG=<version>`
+   in its `.env`, `docker compose pull && up -d --remove-orphans backend frontend`
+2. POST the APK metadata (sha256 + size taken from the release assets,
+   changelog from the release body, `version_code` from the release run) to
+   `/api/admin/releases` so Android clients pick up the update banner on their
+   next cold start
+
+Default policy: `min_supported_version_code = version_code` for the registered
+release, making every release a mandatory upgrade for older installs; pass
+`-f min_supported=1` for an optional one. Without a server to deploy to,
+`deploy.yml` is simply never run — the release artefacts still exist.
+
+Required secrets / variables are documented in the headers of both workflow
+files.
 
 ## Deployment (Production)
 

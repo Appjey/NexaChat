@@ -1,34 +1,20 @@
-# End-to-end release pipeline. Triggered by `git tag v<version> && git push --tags`.
+# Release build (CI half). Triggered by `git tag v<version> && git push --tags`.
+# Produces every artefact of a release and nothing else — no server is touched:
 #
-# What it does, in order:
-#   1. Bumps versionCode/versionName in build.gradle from the tag + GITHUB_RUN_NUMBER.
-#   2. Builds + signs the Android release APK using a keystore stored in secrets.
-#   3. Creates a GitHub Release with the APK + auto-generated changelog.
-#   4. Registers the release in the backend via POST /api/admin/releases — clients
-#      will see the update banner on their next cold start.
-#   5. Builds + pushes backend and frontend Docker images to GHCR.
-#   6. SSHes to the production VM and pulls + restarts both services.
-#   7. A second job (Apple Silicon runner) builds the macOS arm64 desktop DMG
-#      and attaches it to the same GitHub Release. Not registered in
-#      /api/admin/releases — the desktop client has no self-updater; it runs
-#      the web bundle in "always up to date" mode.
+#   android       signed APK + its .sha256 → GitHub Release (created here)
+#   desktop-macos macOS arm64 DMG          → same GitHub Release
+#   images        backend + frontend Docker images → GHCR (:<version> and :latest)
 #
-# Required secrets (Settings → Secrets and variables → Actions):
+# Shipping those artefacts to an environment (deploying the images to the VM
+# and registering the APK in the backend so clients see the update banner) is
+# the CD half: .github/workflows/deploy.yml, run by hand for a given version.
+#
+# Required secrets:
 #   ANDROID_KEYSTORE_BASE64   — `base64 -w0 release.jks` of your keystore file
 #   ANDROID_KEYSTORE_PASSWORD — keystore password
 #   ANDROID_KEY_ALIAS         — key alias inside the keystore
 #   ANDROID_KEY_PASSWORD      — password for that specific key
-#   ADMIN_API_KEY             — same value that's in /etc/messenger/secrets on the VM
-#   DEPLOY_SSH_KEY            — private key authorized for vpmuser@<VM>
-#
-# Required variables (same UI, "Variables" tab — not secret):
-#   BACKEND_URL — your backend's public URL, e.g. https://example.com
-#   DEPLOY_HOST — IP/hostname of the production VM
-#   DEPLOY_USER — SSH login on the VM (typically a non-root deploy user)
-#
-# Optional manual override: `gh workflow run release.yml -f min_supported=N` from
-# the workflow_dispatch trigger lets you mark this release as a hard requirement
-# (everyone with version_code < N gets the mandatory upgrade screen, no dismiss).
+#   GOOGLE_SERVICES_JSON_BASE64 — Firebase config for the Android build
 
 name: Release
 
@@ -36,42 +22,39 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      min_supported:
-        description: 'min_supported_version_code (omit = set to this build''s version_code, making it mandatory for all older installs)'
-        required: false
-        default: ''
 
 permissions:
-  contents: write  # for creating the GitHub Release
-  packages: write  # for pushing images to ghcr.io
+  contents: write  # create the GitHub Release + upload assets
+  packages: write  # push images to ghcr.io
 
 jobs:
-  release:
+  version:
+    name: Parse version
+    runs-on: ubuntu-latest
+    outputs:
+      name: ${{ steps.ver.outputs.name }}
+      code: ${{ steps.ver.outputs.code }}
+    steps:
+      - name: Parse version from tag
+        id: ver
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          echo "name=$TAG" >> "$GITHUB_OUTPUT"
+          # Android versionCode must be a monotonic integer: the run number is.
+          echo "code=$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$TAG (versionCode=$GITHUB_RUN_NUMBER)"
+
+  android:
+    name: Android APK + GitHub Release
+    needs: version
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    outputs:
-      version_name: ${{ steps.ver.outputs.name }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0   # need history for changelog derivation
-
-      - name: Parse version from tag
-        id: ver
-        run: |
-          if [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ]; then
-            TAG="${GITHUB_REF#refs/tags/v}"
-          else
-            # workflow_dispatch path — synthesize from HEAD
-            TAG=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0")
-          fi
-          echo "name=$TAG" >> "$GITHUB_OUTPUT"
-          echo "code=$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
-          echo "Releasing v$TAG (versionCode=$GITHUB_RUN_NUMBER)"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -97,23 +80,20 @@ jobs:
         run: |
           cd frontend/android/app
           # Regex-based so we don't depend on the previous value's exact text.
-          sed -i -E "s/versionCode [0-9]+/versionCode ${{ steps.ver.outputs.code }}/" build.gradle
-          sed -i -E 's/versionName "[^"]+"/versionName "${{ steps.ver.outputs.name }}"/' build.gradle
+          sed -i -E "s/versionCode [0-9]+/versionCode ${{ needs.version.outputs.code }}/" build.gradle
+          sed -i -E 's/versionName "[^"]+"/versionName "${{ needs.version.outputs.name }}"/' build.gradle
           echo "After bump:"
           grep -E 'versionCode|versionName' build.gradle
 
       # google-services.json is gitignored (per-environment Firebase keys); without
       # it the com.google.gms.google-services gradle plugin doesn't apply and the
       # FCM-backed @capacitor/push-notifications plugin throws
-      # "Default FirebaseApp is not initialized" at process start, killing the
-      # app the moment any code reaches into push registration. We restore the
-      # file from a base64 secret before `cap sync`, which is what bundles
-      # google-services.json into the Android build.
+      # "Default FirebaseApp is not initialized" at process start. Restored from
+      # a base64 secret before `cap sync`, which bundles it into the build.
       - name: Restore google-services.json
         run: |
           echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 -d \
             > frontend/android/app/google-services.json
-          # sanity check — non-empty + parseable JSON with the expected shape
           test -s frontend/android/app/google-services.json
           jq -e .project_info.project_id frontend/android/app/google-services.json > /dev/null
 
@@ -121,9 +101,8 @@ jobs:
         working-directory: frontend
         run: |
           npm ci --no-audit --no-fund --ignore-scripts
-          # Same rule as versionName above and the desktop job below: the
-          # committed version is a baseline, the tag is the source of truth.
-          npm version "${{ steps.ver.outputs.name }}" --no-git-tag-version --allow-same-version
+          # The committed version is a baseline, the tag is the source of truth.
+          npm version "${{ needs.version.outputs.name }}" --no-git-tag-version --allow-same-version
           npm run sync:android
 
       - name: Build signed APK
@@ -133,11 +112,10 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          # gradlew is committed without the +x bit on Windows; CI lives on Linux.
           chmod +x ./gradlew
           ./gradlew assembleRelease --no-daemon
 
-      - name: Compute SHA-256 + size, rename APK
+      - name: Compute SHA-256, rename APK
         id: apk
         run: |
           APK=frontend/android/app/build/outputs/apk/release/app-release.apk
@@ -146,25 +124,23 @@ jobs:
             ls frontend/android/app/build/outputs/apk/release/ || true
             exit 1
           fi
-          SHA=$(sha256sum "$APK" | awk '{print $1}')
-          SIZE=$(stat -c%s "$APK")
-          RENAMED="messenger-${{ steps.ver.outputs.name }}.apk"
+          RENAMED="messenger-${{ needs.version.outputs.name }}.apk"
           cp "$APK" "$RENAMED"
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          echo "size=$SIZE" >> "$GITHUB_OUTPUT"
+          # Published next to the APK so deploy.yml can register the release in
+          # the backend without rebuilding or re-downloading anything.
+          sha256sum "$RENAMED" > "$RENAMED.sha256"
           echo "renamed=$RENAMED" >> "$GITHUB_OUTPUT"
-          echo "Built $RENAMED ($SIZE bytes, sha256=$SHA)"
+          echo "Built $RENAMED ($(stat -c%s "$RENAMED") bytes): $(cat "$RENAMED.sha256")"
 
       - name: Generate changelog
         id: changelog
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
           # actions/checkout can land the tag as a lightweight ref (annotation
-          # dropped) — then %(contents) returns the tagged COMMIT's message, not
-          # the tag notes. Re-fetch the tag object and read its message only if
-          # it's truly annotated. Curated notes (git tag -a vX.Y.Z -m "...") then
-          # flow to both the GitHub Release body and the in-app changelog; for a
-          # lightweight tag we fall back to the commit log.
+          # dropped) — re-fetch the tag object and read its message only if it's
+          # truly annotated. Curated notes (git tag -a vX.Y.Z -m "...") flow to
+          # the GitHub Release body and the in-app changelog; a lightweight tag
+          # falls back to the commit log.
           git fetch --force origin "refs/tags/${TAG}:refs/tags/${TAG}" 2>/dev/null || true
           LOG=""
           if [ "$(git cat-file -t "$TAG" 2>/dev/null)" = "tag" ]; then
@@ -189,118 +165,21 @@ jobs:
       - name: Create GitHub Release + upload APK
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ steps.ver.outputs.name }}
+          name: ${{ needs.version.outputs.name }}
           body: ${{ steps.changelog.outputs.log }}
-          files: ${{ steps.apk.outputs.renamed }}
+          files: |
+            ${{ steps.apk.outputs.renamed }}
+            ${{ steps.apk.outputs.renamed }}.sha256
           fail_on_unmatched_files: true
 
-      - name: Register release in backend
-        env:
-          BACKEND_URL: ${{ vars.BACKEND_URL }}
-          ADMIN_KEY: ${{ secrets.ADMIN_API_KEY }}
-          # Default policy: every release is mandatory for older installs.
-          # min_supported = version_code means anyone running < this build sees
-          # the unblockable update screen. Override via workflow_dispatch input
-          # if you want an optional release (e.g. min_supported=1).
-          MIN_SUPPORTED_INPUT: ${{ github.event.inputs.min_supported }}
-          VERSION_CODE: ${{ steps.ver.outputs.code }}
-          # Pass arbitrary-text values via env (not ${{ }} inlined into the
-          # script) so embedded quotes/newlines in the changelog can't break the
-          # shell/jq parse — that's what sank the first v1.5.3 run.
-          VERSION_NAME: ${{ steps.ver.outputs.name }}
-          APK_SHA: ${{ steps.apk.outputs.sha }}
-          APK_SIZE: ${{ steps.apk.outputs.size }}
-          CHANGELOG: ${{ steps.changelog.outputs.log }}
-          APK_URL: https://github.com/${{ github.repository }}/releases/download/v${{ steps.ver.outputs.name }}/${{ steps.apk.outputs.renamed }}
-        run: |
-          MIN_SUPPORTED="${MIN_SUPPORTED_INPUT:-$VERSION_CODE}"
-          echo "version_code=$VERSION_CODE  min_supported=$MIN_SUPPORTED"
-          PAYLOAD=$(jq -n \
-            --arg vn "$VERSION_NAME" \
-            --argjson vc "$VERSION_CODE" \
-            --argjson ms "$MIN_SUPPORTED" \
-            --arg url "$APK_URL" \
-            --arg sha "$APK_SHA" \
-            --argjson sz "$APK_SIZE" \
-            --arg cl "$CHANGELOG" \
-            '{platform:"android", version_name:$vn, version_code:$vc, min_supported_version_code:$ms, url:$url, sha256:$sha, size_bytes:$sz, changelog:$cl}')
-          echo "Posting to $BACKEND_URL/api/admin/releases"
-          curl -fsSL -X POST "$BACKEND_URL/api/admin/releases" \
-            -H "X-Admin-Key: $ADMIN_KEY" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD"
-
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Lowercase repo owner (GHCR requires lowercase)
-        id: owner
-        run: echo "value=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build + push backend image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./backend
-          push: true
-          tags: |
-            ghcr.io/${{ steps.owner.outputs.value }}/messenger-backend:${{ steps.ver.outputs.name }}
-            ghcr.io/${{ steps.owner.outputs.value }}/messenger-backend:latest
-          cache-from: type=gha,scope=backend
-          cache-to: type=gha,scope=backend,mode=max
-
-      - name: Build + push frontend image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./frontend
-          push: true
-          tags: |
-            ghcr.io/${{ steps.owner.outputs.value }}/messenger-frontend:${{ steps.ver.outputs.name }}
-            ghcr.io/${{ steps.owner.outputs.value }}/messenger-frontend:latest
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,scope=frontend,mode=max
-
-      # Push the current docker-compose.prod.yml + nginx config to the VM so
-      # service-level config changes (new secrets, env wiring, etc.) land
-      # together with the new images. The VM holds a hand-managed copy of
-      # these files, not a git checkout.
-      - name: Sync compose + nginx config to VM
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ vars.DEPLOY_HOST }}
-          username: ${{ vars.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          source: "docker-compose.prod.yml,nginx-proxy/"
-          target: /home/vpmuser/nothing
-          overwrite: true
-
-      - name: Deploy to production VM
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ vars.DEPLOY_HOST }}
-          username: ${{ vars.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: |
-            cd /home/vpmuser/nothing
-            docker compose -f docker-compose.prod.yml pull backend frontend
-            docker compose -f docker-compose.prod.yml up -d backend frontend
-            docker compose -f docker-compose.prod.yml exec -T nginx-proxy nginx -s reload || true
-            docker image prune -f
-
-  # macOS desktop client (arm64 DMG). A separate job because the DMG must be
-  # built on an Apple Silicon runner; `needs: release` both hands us the parsed
-  # version and guarantees the GitHub Release already exists, so two jobs never
-  # race to create it. No Developer ID secrets are configured — the bundle is
-  # ad-hoc signed by electron/scripts/adhoc-sign.js, so first launch on another
-  # Mac is right-click → Open (no notarization).
+  # macOS desktop client (arm64 DMG). Must run on an Apple Silicon runner;
+  # `needs: android` guarantees the GitHub Release already exists, so the two
+  # jobs never race to create it. No Developer ID secrets are configured — the
+  # bundle is ad-hoc signed by electron/scripts/adhoc-sign.js, so first launch
+  # on another Mac is right-click → Open (no notarization).
   desktop-macos:
-    needs: release
+    name: macOS DMG
+    needs: [version, android]
     runs-on: macos-15
     timeout-minutes: 30
 
@@ -330,14 +209,58 @@ jobs:
           # fine — electron-builder fetches its own Electron dist for packaging,
           # and CI never runs `electron .`.
           npm ci --no-audit --no-fund --ignore-scripts
-          # Mirror of the Android versionCode/versionName bump: the committed
-          # version is a baseline, the tag is the source of truth.
-          npm version "${{ needs.release.outputs.version_name }}" --no-git-tag-version --allow-same-version
+          npm version "${{ needs.version.outputs.name }}" --no-git-tag-version --allow-same-version
           npx electron-builder --mac dmg --arm64
 
       - name: Upload DMG to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.release.outputs.version_name }}
-          files: frontend/electron/release/Messenger-${{ needs.release.outputs.version_name }}-mac-arm64.dmg
+          tag_name: v${{ needs.version.outputs.name }}
+          files: frontend/electron/release/Messenger-${{ needs.version.outputs.name }}-mac-arm64.dmg
           fail_on_unmatched_files: true
+
+  images:
+    name: Docker images → GHCR
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lowercase repo owner (GHCR requires lowercase)
+        id: owner
+        run: echo "value=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build + push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ghcr.io/${{ steps.owner.outputs.value }}/messenger-backend:${{ needs.version.outputs.name }}
+            ghcr.io/${{ steps.owner.outputs.value }}/messenger-backend:latest
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+
+      - name: Build + push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ghcr.io/${{ steps.owner.outputs.value }}/messenger-frontend:${{ needs.version.outputs.name }}
+            ghcr.io/${{ steps.owner.outputs.value }}/messenger-frontend:latest
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
