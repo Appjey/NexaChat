@@ -176,7 +176,7 @@ jobs:
   # `needs: android` guarantees the GitHub Release already exists, so the two
   # jobs never race to create it. No Developer ID secrets are configured — the
   # bundle is ad-hoc signed by electron/scripts/adhoc-sign.js, so first launch
-  # on another Mac is right-click → Open (no notarization).
+  # on another Mac needs the Gatekeeper override described in the README (no notarization).
   desktop-macos:
     name: macOS DMG
     needs: [version, android]
@@ -216,7 +216,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.version.outputs.name }}
-          files: frontend/electron/release/Messenger-${{ needs.version.outputs.name }}-mac-arm64.dmg
+          files: frontend/electron/release/Nothing-${{ needs.version.outputs.name }}-mac-arm64.dmg
           fail_on_unmatched_files: true
 
   images:

@@ -5,7 +5,7 @@
 // signature that doesn't seal the app resources — Apple Silicon refuses to
 // launch such bundles (SIGKILL at exec). Ad-hoc deep-signing makes the
 // bundle launchable locally and on other arm64 Macs (after the usual
-// Gatekeeper right-click → Open for unnotarized apps).
+// Gatekeeper "Open Anyway" override for unnotarized apps, see README).
 //
 // When real signing is configured (CSC_LINK / CSC_NAME), this hook steps
 // aside so it never clobbers a Developer ID signature.

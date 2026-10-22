@@ -1,8 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none">
-  <rect width="1024" height="1024" rx="192" fill="#3b82f6"/>
-  <g transform="translate(-168 -96) scale(42)">
-    <path
-      d="M16 24c4.418 0 8-3.134 8-7s-3.582-7-8-7-8 3.134-8 7c0 1.76.743 3.37 1.97 4.6-.097 1.016-.417 2.13-.771 2.966-.079.186.074.394.273.362 2.256-.37 3.597-.938 4.18-1.234A9.06 9.06 0 0 0 16 24z"
-      fill="#ffffff" />
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Nothing: a dark field, an open ring, one bright point. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#23233f"/>
+      <stop offset="1" stop-color="#121224"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="226" fill="url(#bg)"/>
+  <circle cx="512" cy="512" r="290" fill="none" stroke="#f2f3f8" stroke-width="64" stroke-linecap="round"
+          stroke-dasharray="1518 304" transform="rotate(-62 512 512)"/>
+  <circle cx="754" cy="320" r="58" fill="#4f8cff"/>
 </svg>

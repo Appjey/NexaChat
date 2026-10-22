@@ -122,7 +122,7 @@ function createWindow() {
     height: 800,
     minWidth: 400,
     minHeight: 600,
-    title: 'Messenger',
+    title: 'Nothing',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
