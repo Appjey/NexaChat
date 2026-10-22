@@ -7,7 +7,7 @@ import { createContext, useContext } from 'react'
  *                 Capacitor Preferences / localStorage. Render nothing E2E-related yet.
  *   - 'ready'   : accountKey is in memory; encrypt/decrypt can proceed.
  *   - 'missing' : no key found on disk. Either the user has never logged in or they
- *                 cleared storage. Outgoing messages fall back to scheme=1 until the
+ *                 cleared storage. Sending is blocked (composer disabled) until the
  *                 next login refills the key; incoming scheme=2 messages render
  *                 as a placeholder.
  */

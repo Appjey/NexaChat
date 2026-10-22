@@ -68,7 +68,7 @@ func NewAttachmentService(
 	messageRepo *repositories.MessageRepo,
 	chatRepo *repositories.ChatRepo,
 	participantRepo *repositories.ChatParticipantRepo,
-	storage storage.Storage,
+	fileStorage storage.Storage,
 ) *AttachmentService {
 	return &AttachmentService{
 		db:              db,
@@ -78,7 +78,7 @@ func NewAttachmentService(
 		messageRepo:     messageRepo,
 		chatRepo:        chatRepo,
 		participantRepo: participantRepo,
-		storage:         storage,
+		storage:         fileStorage,
 		validator:       &fileValidator{},
 	}
 }

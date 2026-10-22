@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"messenger/internal/i18n"
 
 	"messenger/internal/models"
 
@@ -32,7 +33,7 @@ func (h *webSocketHandler) handleCallSignaling(ctx context.Context, userID uint,
 		return &wsError{message: "Calls are only supported in 1-on-1 chats"}
 	}
 	if !chat.HasUser(userID) {
-		return &wsError{message: "Access denied to this chat"}
+		return &wsError{message: errMsgChatAccessDenied}
 	}
 
 	otherUserID := chat.GetUser1ID()
@@ -109,7 +110,7 @@ func (h *webSocketHandler) sendCallPush(ctx context.Context, callerID, calleeID 
 	if h.pushService == nil || !h.pushService.IsEnabled() {
 		return
 	}
-	callerName := "Входящий вызов"
+	callerName := i18n.IncomingCallFallbackName
 	if h.userService != nil {
 		if u, err := h.userService.GetUserByID(ctx, callerID); err == nil && u != nil {
 			if name := u.GetDisplayName(); name != "" {
@@ -170,4 +171,64 @@ func (h *webSocketHandler) handleCallMissed(ctx context.Context, userID uint, ra
 		h.logger.Warn("failed to broadcast missed-call message", zap.Error(err), zap.Uint("chat_id", ca.ChatID))
 	}
 	return nil
+}
+
+// registerCall tracks an active call between two users for disconnect notification.
+func (h *webSocketHandler) registerCall(userID, peerUserID uint, callID string, chatID uint) {
+	h.callsMu.Lock()
+	defer h.callsMu.Unlock()
+	h.activeCalls[userID] = activeCallInfo{peerUserID: peerUserID, callID: callID, chatID: chatID}
+	h.activeCalls[peerUserID] = activeCallInfo{peerUserID: userID, callID: callID, chatID: chatID}
+}
+
+// unregisterCall removes call tracking for a user and their peer.
+func (h *webSocketHandler) unregisterCall(userID uint) {
+	h.callsMu.Lock()
+	defer h.callsMu.Unlock()
+	if info, ok := h.activeCalls[userID]; ok {
+		delete(h.activeCalls, info.peerUserID)
+		delete(h.activeCalls, userID)
+	}
+}
+
+// notifyCallPeerOnDisconnect sends call_hangup to the peer if the user had an active call
+// and has no remaining connections (avoids TOCTOU race by checking under lock).
+func (h *webSocketHandler) notifyCallPeerOnDisconnect(userID uint) {
+	h.mu.RLock()
+	hasConnections := len(h.clients[userID]) > 0
+	h.mu.RUnlock()
+	if hasConnections {
+		return
+	}
+
+	h.callsMu.Lock()
+	info, ok := h.activeCalls[userID]
+	if ok {
+		delete(h.activeCalls, userID)
+		delete(h.activeCalls, info.peerUserID)
+	}
+	h.callsMu.Unlock()
+
+	if !ok {
+		return
+	}
+
+	hangupData := map[string]any{
+		"action":  actionCallHangup,
+		"chat_id": info.chatID,
+		"call_id": info.callID,
+		"user_id": userID,
+	}
+	msgJSON, err := json.Marshal(hangupData)
+	if err != nil {
+		h.logger.Error("failed to marshal disconnect hangup", zap.Error(err), zap.Uint("user_id", userID))
+		return
+	}
+
+	h.broadcastToUser(info.peerUserID, msgJSON)
+	h.logger.Debug("sent call_hangup on disconnect",
+		zap.Uint("disconnected_user", userID),
+		zap.Uint("notified_peer", info.peerUserID),
+		zap.String("call_id", info.callID),
+	)
 }

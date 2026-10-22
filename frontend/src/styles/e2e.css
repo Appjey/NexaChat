@@ -1,0 +1,114 @@
+/* ---------- E2E key verification ---------- */
+
+.e2e-banner {
+  padding: 8px 12px;
+  background: rgba(255, 193, 7, 0.12);
+  border-top: 1px solid rgba(255, 193, 7, 0.3);
+  color: #ffc107;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.e2e-banner--danger {
+  background: rgba(220, 53, 69, 0.12);
+  border-top-color: rgba(220, 53, 69, 0.4);
+  color: #ff6b6b;
+}
+
+.e2e-banner__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.e2e-banner__btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.e2e-banner__btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.e2e-section {
+  width: 100%;
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(127, 127, 127, 0.12);
+  font-size: 13px;
+  text-align: left;
+}
+
+.e2e-section__title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.e2e-section__status {
+  margin: 4px 0 8px;
+}
+
+.e2e-section__status--ok {
+  color: #51cf66;
+}
+
+.e2e-section__status--danger {
+  color: #ff6b6b;
+}
+
+.e2e-section__number {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  line-height: 1.7;
+  word-break: break-word;
+  user-select: all;
+}
+
+.e2e-section__fp {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  user-select: all;
+}
+
+.e2e-section__hint {
+  font-size: 12px;
+  opacity: 0.75;
+  margin-top: 6px;
+}
+
+.e2e-section__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.profile-modal__fingerprint {
+  display: block;
+  margin-top: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  opacity: 0.7;
+  user-select: all;
+}
+
+.gip-member__key {
+  font-size: 11px;
+  margin-left: 6px;
+}
+
+.gip-member__key--verified {
+  color: #51cf66;
+}
+
+.gip-member__key--changed {
+  color: #ff6b6b;
+}

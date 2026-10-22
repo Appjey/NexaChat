@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.4
 
 # ===================== Build Stage =====================
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 # Install build dependencies in single layer
 RUN apk add --no-cache git ca-certificates tzdata

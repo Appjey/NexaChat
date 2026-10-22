@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 
 import { getContacts } from '../../shared/api/contactsApi'
+import { userMessage } from '../../shared/api/errors'
 import { createGroup } from '../../shared/api/groupsApi'
 import { resolveApiUrl } from '../../shared/api/httpClient'
 import type { GroupCreateResponse, UserListItem } from '../../shared/api/types'
 import { CheckIcon, CloseIcon, SearchIcon } from '../../shared/components/Icons'
 import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
+import { log } from '../../shared/log'
 
 type Props = {
   isOpen: boolean
@@ -32,7 +34,7 @@ export function CreateGroupModal({ isOpen, onClose, onGroupCreated }: Props) {
     setLoading(true)
     getContacts()
       .then((data) => { if (!cancelled) setContacts(data) })
-      .catch(console.error)
+      .catch(log.error)
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [isOpen])
@@ -89,7 +91,7 @@ export function CreateGroupModal({ isOpen, onClose, onGroupCreated }: Props) {
       onGroupCreated(group)
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось создать группу')
+      setError(userMessage(err, 'Не удалось создать группу'))
     } finally {
       setCreating(false)
     }

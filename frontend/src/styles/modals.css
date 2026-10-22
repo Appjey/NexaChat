@@ -1,0 +1,1102 @@
+/* ============================================
+   PROFILE MODAL
+   ============================================ */
+.profile-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.profile-modal {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-xl);
+  padding: var(--space-xl);
+  width: 320px;
+  max-width: 90vw;
+  position: relative;
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-lg);
+  animation: scaleIn 0.2s ease;
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.profile-modal__header-actions {
+  position: absolute;
+  top: var(--space-md);
+  right: var(--space-md);
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.profile-modal__action-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+}
+
+.profile-modal__action-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.profile-modal__action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.profile-modal__action-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.profile-modal__avatar-wrapper {
+  position: relative;
+  cursor: pointer;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.profile-modal__avatar {
+  width: 100px;
+  height: 100px;
+  border-radius: var(--radius-full);
+  object-fit: cover;
+  display: block;
+}
+
+.profile-modal__avatar-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: var(--transition);
+}
+
+.profile-modal__avatar-wrapper:hover .profile-modal__avatar-overlay {
+  opacity: 1;
+}
+
+.profile-modal__avatar-overlay svg {
+  width: 32px;
+  height: 32px;
+  color: white;
+}
+
+.profile-modal__info {
+  text-align: center;
+  width: 100%;
+}
+
+.profile-modal__name {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-xs) 0;
+}
+
+.profile-modal__name-input {
+  width: 100%;
+  text-align: center;
+  font-size: 1.25rem;
+  font-weight: 600;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-xs);
+}
+
+.profile-modal__username {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.profile-modal__actions {
+  display: flex;
+  gap: var(--space-md);
+  width: 100%;
+  justify-content: center;
+}
+
+.profile-modal__actions .btn {
+  flex: 1;
+  max-width: 140px;
+}
+
+/* User Profile Modal (viewing other users) */
+.user-profile-modal__avatar-wrapper {
+  cursor: default;
+  position: relative;
+}
+
+.user-profile-modal__status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.user-profile-modal__contact-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  color: var(--accent-success);
+  font-size: 0.875rem;
+}
+
+.user-profile-modal__contact-badge svg {
+  width: 16px;
+  height: 16px;
+}
+
+.user-profile-modal__contact-badge--clickable {
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  user-select: none;
+}
+
+.user-profile-modal__contact-badge--clickable:hover {
+  background: rgba(248, 81, 73, 0.1);
+  color: var(--accent-danger);
+}
+
+.user-profile-modal__confirm-remove {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  animation: confirmFlash 0.4s ease;
+}
+
+.user-profile-modal__confirm-text {
+  font-size: 0.875rem;
+  font-weight: 550;
+  color: var(--accent-danger);
+}
+
+.user-profile-modal__confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.profile-modal__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 150px;
+}
+
+/* ============================================
+   CONTACTS MODAL
+   ============================================ */
+.contacts-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+
+.contacts-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  width: 420px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-xl), 0 0 0 1px var(--border-muted);
+  animation: contactsModalIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  overflow: hidden;
+}
+
+@keyframes contactsModalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.contacts-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-lg) var(--space-xl);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.contacts-modal__title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.contacts-modal__close {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+}
+
+.contacts-modal__close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.contacts-modal__close svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* --- Selection mode (multi-select like Telegram) --- */
+.contacts-modal__header--selection {
+  gap: var(--space-lg);
+  animation: contactsSelectionSlideIn 0.18s ease-out;
+}
+
+.contacts-modal__selection-count {
+  flex: 1;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.contacts-modal__icon-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.contacts-modal__icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.contacts-modal__icon-btn--danger {
+  color: var(--accent-danger);
+}
+
+.contacts-modal__icon-btn--danger:hover {
+  background: rgba(248, 81, 73, 0.12);
+  color: var(--accent-danger);
+}
+
+/* Green check badge anchored to the bottom-right of the avatar (Telegram-style) */
+.contacts-modal__select-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background: var(--accent-success);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--bg-secondary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  animation: contactsSelectBadgePop 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.contacts-modal__select-badge svg {
+  width: 10px;
+  height: 10px;
+}
+
+@keyframes contactsSelectBadgePop {
+  from { transform: scale(0); }
+  to { transform: scale(1); }
+}
+
+@keyframes contactsSelectionSlideIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.contacts-modal__search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-xl);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.contacts-modal__search svg {
+  width: 20px;
+  height: 20px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  transition: color 0.2s;
+}
+
+.contacts-modal__search:focus-within svg {
+  color: var(--accent-primary);
+}
+
+.contacts-modal__search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  outline: none;
+}
+
+.contacts-modal__search input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.contacts-modal__list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-xs) 0;
+}
+
+.contacts-modal__empty {
+  padding: var(--space-2xl) var(--space-xl);
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 0.9rem;
+}
+
+/* --- Contact item row --- */
+.contacts-modal__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-sm) var(--space-xl);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+  text-align: left;
+  position: relative;
+  overflow: hidden;
+  contain: inline-size;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .contacts-modal__item:hover {
+    background: var(--bg-hover);
+  }
+}
+
+.contacts-modal__item:active {
+  transform: scale(0.99);
+}
+
+.contacts-modal__item:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* --- Avatar with accent ring --- */
+.contacts-modal__avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+}
+
+.contacts-modal__avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-full);
+  object-fit: cover;
+  border: 2px solid var(--border-color);
+  transition: border-color 0.2s;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .contacts-modal__item:hover .contacts-modal__avatar {
+    border-color: var(--accent-primary-muted);
+  }
+}
+
+/* --- Info text --- */
+.contacts-modal__info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  gap: 1px;
+}
+
+.contacts-modal__name {
+  font-size: 0.92rem;
+  font-weight: 550;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.contacts-modal__username {
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  line-height: 1.3;
+}
+
+/* --- Action button (replaces plain text) --- */
+.contacts-modal__action-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 14px;
+  border: none;
+  border-radius: var(--radius-full);
+  font-size: 0.8rem;
+  font-weight: 550;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+  background: var(--accent-primary-dim);
+  color: var(--accent-primary);
+  opacity: 0;
+  transform: translateX(6px);
+  pointer-events: none;
+}
+
+.contacts-modal__item:hover .contacts-modal__action-btn,
+.contacts-modal__action-btn:focus-visible {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.contacts-modal__action-btn:hover {
+  background: var(--accent-primary-subtle);
+  color: var(--text-inverse);
+  box-shadow: 0 2px 8px rgba(56, 139, 253, 0.25);
+}
+
+.contacts-modal__action-btn:disabled {
+  opacity: 0.5 !important;
+  pointer-events: none;
+}
+
+/* The row itself is the primary click target. The only inline action button that
+   survives is "+" (add to contacts), shown for global search results. To remove a
+   contact, long-press the row to enter Telegram-style selection mode and use the
+   trash button in the header. */
+@media (hover: none) {
+  .contacts-modal__action-btn--add {
+    opacity: 1;
+    transform: translateX(0);
+    pointer-events: auto;
+  }
+}
+
+/* Action icon inside button */
+.contacts-modal__action-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* --- Actions group (chat + delete side by side) --- */
+.contacts-modal__actions-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.contacts-modal__actions-group .contacts-modal__action-btn {
+  margin-left: 0;
+}
+
+/* --- Danger variant of action button (delete) --- */
+.contacts-modal__action-btn--danger {
+  background: transparent;
+  color: var(--text-tertiary);
+  padding: 5px 8px;
+}
+
+.contacts-modal__action-btn--danger:hover {
+  background: rgba(248, 81, 73, 0.12) !important;
+  color: var(--accent-danger) !important;
+  box-shadow: none !important;
+}
+
+/* --- Add contact variant of action button --- */
+.contacts-modal__action-btn--add {
+  background: transparent;
+  color: var(--accent-success);
+  padding: 5px 8px;
+  border-color: var(--accent-success);
+}
+
+.contacts-modal__action-btn--add svg {
+  width: 22px;
+  height: 22px;
+}
+
+.contacts-modal__action-btn--add:hover {
+  background: rgba(63, 185, 80, 0.15) !important;
+  color: var(--accent-success) !important;
+  box-shadow: none !important;
+}
+
+/* --- Confirming state for modal item --- */
+.contacts-modal__item--confirming {
+  background: rgba(248, 81, 73, 0.06);
+  animation: confirmFlash 0.4s ease !important;
+}
+
+@keyframes confirmFlash {
+  0% { background: transparent; }
+  30% { background: rgba(248, 81, 73, 0.15); }
+  100% { background: rgba(248, 81, 73, 0.06); }
+}
+
+.contacts-modal__item--confirming .contacts-modal__avatar {
+  border-color: var(--accent-danger);
+  opacity: 0.7;
+}
+
+/* Compact confirm buttons inside the contacts modal */
+.contacts-modal__item .contact-card__confirm-actions {
+  gap: 6px;
+}
+
+.contacts-modal__item .contact-card__confirm-btn {
+  padding: 4px 10px;
+  min-width: 0;
+  height: 28px;
+  font-size: 0.75rem;
+}
+
+/* --- Profile page inline confirm --- */
+.profile-confirm-inline {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-sm);
+  animation: confirmFadeIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.profile-confirm-inline__text {
+  font-size: 0.85rem;
+  font-weight: 550;
+  color: var(--accent-danger);
+}
+
+.profile-confirm-inline__actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+/* --- Section label with decorative line --- */
+.contacts-modal__section-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-xl) var(--space-xs);
+  font-size: 0.7rem;
+  font-weight: 650;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.contacts-modal__section-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-color);
+}
+
+/* --- Staggered item entrance animation --- */
+.contacts-modal__item {
+  animation: contactItemSlideIn 0.2s ease backwards;
+}
+
+@keyframes contactItemSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Spinner for loading state inside button */
+.contacts-modal__spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================
+   CONTACT CARD — Confirm actions (used in ContactsModal, ProfilePage, UserProfileModal)
+   ============================================ */
+
+.contact-card__confirm-text {
+  font-size: 0.9rem;
+  font-weight: 550;
+  color: var(--accent-danger);
+  animation: confirmFadeIn 0.2s ease;
+}
+
+.contact-card__confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+  margin-left: auto;
+  animation: confirmFadeIn 0.2s ease;
+}
+
+@keyframes confirmFadeIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.contact-card__confirm-btn {
+  padding: 5px 14px;
+  border-radius: var(--radius-full);
+  border: none;
+  font-size: 0.8rem;
+  font-weight: 550;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 70px;
+  height: 30px;
+}
+
+.contact-card__confirm-btn--delete {
+  background: var(--accent-danger);
+  color: var(--text-inverse);
+}
+
+.contact-card__confirm-btn--delete:hover:not(:disabled) {
+  background: #d73a49;
+  box-shadow: 0 2px 8px rgba(248, 81, 73, 0.3);
+  transform: scale(1.04);
+}
+
+.contact-card__confirm-btn--delete:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.contact-card__confirm-btn--cancel {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.contact-card__confirm-btn--cancel:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* ============================================
+   SETTINGS MODAL
+   ============================================ */
+.settings-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+
+.settings-modal {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-xl);
+  width: 400px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-xl);
+  animation: scaleIn 0.2s ease;
+  overflow: hidden;
+}
+
+.settings-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-lg) var(--space-xl);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.settings-modal__title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.settings-modal__close {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+}
+
+.settings-modal__close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.settings-modal__close svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Menu list */
+.settings-modal__list {
+  padding: var(--space-sm) 0;
+}
+
+.settings-modal__list-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-md) var(--space-xl);
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: var(--transition);
+  text-align: left;
+}
+
+.settings-modal__list-item:hover {
+  background: var(--bg-hover);
+}
+
+.settings-modal__list-icon {
+  width: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+}
+
+.settings-modal__content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-md) 0;
+}
+
+.settings-modal__section {
+  padding: var(--space-md) var(--space-xl);
+}
+
+.settings-modal__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) 0;
+}
+
+.settings-modal__option-label {
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.settings-modal__option-hint {
+  color: var(--text-tertiary);
+  font-size: 0.8rem;
+  margin-top: 2px;
+}
+
+.settings-modal__group-title {
+  margin: 0 0 var(--space-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.settings-modal__divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: var(--space-lg) 0;
+}
+
+/* Custom autolock picker — the native <select> opens an OS dialog that
+   ignores the app theme, so the options expand inline instead. */
+.applock-picker {
+  margin-top: var(--space-xs);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.applock-picker__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--space-md);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.applock-picker__trigger:hover {
+  background: var(--bg-hover);
+}
+
+.applock-picker__value {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.applock-picker__chevron {
+  transition: var(--transition);
+}
+
+.applock-picker__chevron--open {
+  transform: rotate(180deg);
+}
+
+.applock-picker__options {
+  border-top: 1px solid var(--border-color);
+}
+
+.applock-picker__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--space-md);
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: var(--transition);
+  text-align: left;
+}
+
+.applock-picker__option:hover {
+  background: var(--bg-hover);
+}
+
+.applock-picker__option--selected {
+  color: var(--accent-primary);
+}
+
+/* ============================================
+   IMAGE LIGHTBOX
+   ============================================ */
+.lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.9);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+
+.lightbox-close {
+  position: absolute;
+  top: var(--space-lg);
+  right: var(--space-lg);
+  width: 44px;
+  height: 44px;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  cursor: pointer;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+  z-index: 2001;
+}
+
+.lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.lightbox-close svg {
+  width: 24px;
+  height: 24px;
+}
+
+.lightbox-image {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+}
+
+@media (max-width: 480px) {
+  .lightbox-close {
+    top: var(--space-md);
+    right: var(--space-md);
+  }
+
+  .lightbox-image {
+    max-width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+}
+
+.settings-modal__placeholder {
+  color: var(--text-tertiary);
+  font-size: 0.9rem;
+  padding: var(--space-md) 0;
+}
+
+/* Change Password Form */
+.change-password-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.change-password-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.change-password-form__field label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.change-password-form__field .form-control {
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.9rem;
+}
+
+.change-password-form__hint {
+  font-size: 0.8rem;
+  color: var(--accent-danger);
+}
+
+.change-password-form__error {
+  font-size: 0.85rem;
+  color: var(--accent-danger);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--accent-danger-dim, rgba(220, 53, 69, 0.1));
+  border-radius: var(--radius-md);
+}
+
+.change-password-form__success {
+  font-size: 0.85rem;
+  color: var(--accent-success);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--accent-success-dim, rgba(25, 135, 84, 0.1));
+  border-radius: var(--radius-md);
+}
+
+.change-password-form__submit {
+  align-self: flex-start;
+  margin-top: var(--space-xs);
+}

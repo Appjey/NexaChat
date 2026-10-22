@@ -8,6 +8,7 @@
 // native (via @capacitor/push-notifications removeDeliveredNotifications).
 // Silent no-op on platforms without notification APIs.
 
+import { log } from './log'
 import { isNative } from './platform'
 
 export async function dismissChatNotifications(chatId: number): Promise<void> {
@@ -22,7 +23,7 @@ export async function dismissChatNotifications(chatId: number): Promise<void> {
         await PushNotifications.removeDeliveredNotifications({ notifications: toRemove })
       }
     } catch (err) {
-      console.warn('dismissChatNotifications (native):', err)
+      log.warn('dismissChatNotifications (native):', err)
     }
     return
   }
@@ -37,6 +38,6 @@ export async function dismissChatNotifications(chatId: number): Promise<void> {
     const notifs = await reg.getNotifications({ tag })
     notifs.forEach((n) => n.close())
   } catch (err) {
-    console.warn('dismissChatNotifications (web):', err)
+    log.warn('dismissChatNotifications (web):', err)
   }
 }

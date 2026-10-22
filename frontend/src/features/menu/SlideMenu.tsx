@@ -10,6 +10,7 @@ import { GroupIcon } from '../../shared/components/Icons'
 import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 import { useTheme } from '../../shared/hooks/useTheme'
+import { log } from '../../shared/log'
 import { useAuthContext } from '../auth/AuthContext'
 import { CreateGroupModal } from '../chats/CreateGroupModal'
 import { ContactsModal } from '../contacts/ContactsModal'
@@ -76,7 +77,7 @@ export function SlideMenu({ isOpen, onClose, onChatSelected }: Props) {
       const chat = await createChat(contact.id)
       onChatSelected?.(chat.id)
     } catch (err) {
-      console.error('Failed to create chat:', err)
+      log.error('Failed to create chat:', err)
     }
   }
 

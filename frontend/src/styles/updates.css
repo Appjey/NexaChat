@@ -1,0 +1,255 @@
+/* ============================================================
+   Self-update banner (Layer 2) — non-blocking strip on top of
+   ChatsPage when a new soft update is available.
+   ============================================================ */
+.update-banner {
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  padding: 10px 14px;
+  animation: fadeIn 0.25s ease-out;
+}
+
+.update-banner__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.update-banner__text {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.update-banner__icon {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.update-banner__copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.update-banner__title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.update-banner__meta {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.update-banner__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.update-banner__btn {
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.update-banner__btn--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.update-banner__btn--ghost:hover {
+  background: var(--bg-hover);
+}
+
+.update-banner__btn--primary {
+  background: var(--accent-primary);
+  color: var(--text-inverse);
+}
+
+.update-banner__btn--primary:hover {
+  filter: brightness(1.05);
+}
+
+.update-banner__changelog {
+  margin: var(--space-sm) 0 0;
+  padding: var(--space-sm);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.update-banner__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+}
+
+.update-banner__progress-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.update-banner__progress-bar {
+  height: 6px;
+  background: var(--bg-secondary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.update-banner__progress-fill {
+  height: 100%;
+  background: var(--accent-primary);
+  transition: width 0.2s ease-out;
+}
+
+/* ============================================================
+   Mandatory update screen (Layer 4) — full-screen blocker when
+   current version < min_supported_version_code.
+   ============================================================ */
+.update-mandatory {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+  padding: var(--space-xl);
+}
+
+.update-mandatory__card {
+  max-width: 420px;
+  width: 100%;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.update-mandatory__icon {
+  font-size: 3rem;
+  margin-bottom: var(--space-md);
+}
+
+.update-mandatory__title {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-md);
+}
+
+.update-mandatory__message {
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0 0 var(--space-md);
+}
+
+.update-mandatory__meta {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-bottom: var(--space-md);
+}
+
+.update-mandatory__changelog {
+  text-align: left;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  padding: var(--space-md);
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 0 0 var(--space-lg);
+}
+
+.update-mandatory__action {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+
+.update-mandatory__btn {
+  padding: 14px 32px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--accent-primary);
+  color: var(--text-inverse);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+
+.update-mandatory__btn:hover {
+  filter: brightness(1.05);
+}
+
+/* Secondary "stay on current version" escape shown only after a failed update. */
+.update-mandatory__btn--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--text-tertiary);
+  font-weight: 500;
+}
+
+.update-mandatory__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  align-items: center;
+}
+
+.update-mandatory__progress-bar {
+  width: 100%;
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.update-mandatory__progress-fill {
+  height: 100%;
+  background: var(--accent-primary);
+  transition: width 0.2s ease-out;
+}
+
+.update-mandatory__progress-label {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+/* ChatsPage shell — wraps the update banner + the telegram-layout so the
+   banner takes natural height and the layout below fills the remaining
+   viewport. Plain flex column avoids any percent-based collapse on iOS. */
+.chats-page-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+.chats-page-shell > .telegram-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+}

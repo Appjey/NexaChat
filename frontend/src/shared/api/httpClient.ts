@@ -1,9 +1,16 @@
-import { isNative } from '../platform'
+import { log } from '../log'
+import { isNative, isWebBrowser } from '../platform'
+import { ApiError, TIMEOUT_CODE } from './errors'
 
 const USE_PROXY = import.meta.env.VITE_USE_PROXY === 'true'
 const BASE_URL = USE_PROXY ? '' : import.meta.env.VITE_API_BASE_URL ?? ''
 const TOKEN_KEY = 'auth_token'
 const REFRESH_TOKEN_HEADER = 'X-Refresh-Token'
+// Browser builds never hold the JWT: the backend sets it as an HttpOnly
+// cookie on login (sent automatically with `credentials: 'include'` and on the
+// WebSocket handshake). This non-secret flag only remembers "a session was
+// started here" so the app knows to try /api/auth/me on boot.
+const SESSION_FLAG_KEY = 'auth_session'
 /**
  * Fired on `window` when the backend answers 401 to an authenticated request,
  * i.e. the session was revoked (logout elsewhere, password change, admin
@@ -49,7 +56,19 @@ export async function hydrateAuthToken(): Promise<void> {
       }
     }
   } catch (err) {
-    console.error('Failed to hydrate auth token from Preferences:', err)
+    log.error('Failed to hydrate auth token from Preferences:', err)
+  }
+}
+
+/** `{"error": "...", "code": "..."}` → ApiError; anything else keeps the raw body as the message. */
+function parseApiError(status: number, body: string): ApiError {
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown; code?: unknown }
+    const message = typeof parsed.error === 'string' && parsed.error ? parsed.error : `Request failed: ${status}`
+    const code = typeof parsed.code === 'string' ? parsed.code : undefined
+    return new ApiError(status, message, code)
+  } catch {
+    return new ApiError(status, body || `Request failed: ${status}`)
   }
 }
 
@@ -60,21 +79,47 @@ export function resolveApiUrl(path: string | null | undefined): string | undefin
   return path
 }
 
+/** The bearer token for native shells; always null in a browser (cookie auth). */
 export function getAuthToken() {
+  if (isWebBrowser()) return null
   return localStorage.getItem(TOKEN_KEY)
 }
 
+/** True when this client believes it has a session (token on native, flag on web). */
+export function hasAuthSession(): boolean {
+  if (isWebBrowser()) {
+    try {
+      return localStorage.getItem(SESSION_FLAG_KEY) === '1'
+    } catch {
+      return false
+    }
+  }
+  return Boolean(getAuthToken())
+}
+
 export function setAuthToken(token?: string) {
+  if (isWebBrowser()) {
+    // The cookie is the session; the token value is deliberately dropped.
+    // Also scrub a token a pre-cookie build may have left behind.
+    try {
+      localStorage.removeItem(TOKEN_KEY)
+      if (token) localStorage.setItem(SESSION_FLAG_KEY, '1')
+      else localStorage.removeItem(SESSION_FLAG_KEY)
+    } catch {
+      // ignore
+    }
+    return
+  }
   if (!token) {
     localStorage.removeItem(TOKEN_KEY)
     if (isNative()) {
-      void prefsRemove(TOKEN_KEY).catch((err) => console.error('Failed to clear token from Preferences:', err))
+      void prefsRemove(TOKEN_KEY).catch((err) => log.error('Failed to clear token from Preferences:', err))
     }
     return
   }
   localStorage.setItem(TOKEN_KEY, token)
   if (isNative()) {
-    void prefsSet(TOKEN_KEY, token).catch((err) => console.error('Failed to mirror token to Preferences:', err))
+    void prefsSet(TOKEN_KEY, token).catch((err) => log.error('Failed to mirror token to Preferences:', err))
   }
 }
 
@@ -98,18 +143,20 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     // Sliding-session refresh: if the server rotated our token (sent when the active
     // token is older than a day) the response carries a fresh JWT we should adopt.
     // Backend exposes this header via CORS ExposeHeaders so fetch() can read it.
+    // (Browsers get the rotated token as a new cookie instead; the header is
+    // absent for them.)
     const refreshed = response.headers.get(REFRESH_TOKEN_HEADER)
-    if (refreshed && refreshed !== token) {
+    if (refreshed && refreshed !== token && !isWebBrowser()) {
       setAuthToken(refreshed)
     }
 
     if (!response.ok) {
       const errorBody = await response.text()
-      if (response.status === 401 && token && !CREDENTIAL_PATHS.has(path)) {
+      if (response.status === 401 && hasAuthSession() && !CREDENTIAL_PATHS.has(path)) {
         setAuthToken(undefined)
         window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
       }
-      throw new Error(errorBody || `Request failed: ${response.status}`)
+      throw parseApiError(response.status, errorBody)
     }
 
     if (response.status === 204) {
@@ -129,7 +176,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     return rawBody as unknown as T
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new Error('Request timed out')
+      throw new ApiError(0, 'Request timed out', TIMEOUT_CODE)
     }
     throw err
   } finally {

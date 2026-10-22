@@ -9,7 +9,32 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// HTTP response helpers
+// HTTP response helpers.
+//
+// Error bodies are `{"error": <english message>, "code": <machine-readable>}`.
+// The message is for logs and curl; clients render their own localized copy
+// from the code (frontend/src/shared/api/errors.ts). Russian never appears in
+// an API error — the server's own user-facing copy lives in internal/i18n.
+
+// Error codes shared with the frontend. Keep the list in sync with
+// frontend/src/shared/api/errors.ts.
+const (
+	codeValidation           = "validation"
+	codeUnauthorized         = "unauthorized"
+	codeInvalidCredentials   = "invalid_credentials"
+	codeTooManyAttempts      = "too_many_attempts"
+	codeWrongCurrentPassword = "wrong_current_password"
+	codeUsernameTaken        = "username_taken"
+	codeUsernameInvalid      = "username_invalid"
+	codeNameInvalid          = "name_invalid"
+	codeWeakPassword         = "weak_password"
+	codeClientUpdateRequired = "client_update_required"
+)
+
+// sendError writes a coded error body with the given status.
+func sendError(c *gin.Context, status int, code, message string) {
+	c.JSON(status, gin.H{"error": message, "code": code})
+}
 
 func sendSuccess(c *gin.Context, data any) {
 	c.JSON(http.StatusOK, data)
@@ -24,7 +49,7 @@ func sendBadRequest(c *gin.Context, message string) {
 }
 
 func sendUnauthorized(c *gin.Context) {
-	c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+	sendError(c, http.StatusUnauthorized, codeUnauthorized, "Unauthorized")
 }
 
 func sendForbidden(c *gin.Context, message string) {

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"messenger/internal/i18n"
 	"messenger/internal/models"
 	"messenger/internal/services"
 
@@ -17,7 +18,7 @@ import (
 // sender's message is whitespace-only — this happens when they post a message with only
 // file attachments. The composer sends `text: ' '` to satisfy the non-empty-text rule, so
 // without the substitution recipients would see an empty notification body.
-const pushBodyAttachmentPlaceholder = "📎 Вложение"
+const pushBodyAttachmentPlaceholder = i18n.AttachmentPlaceholder
 
 // addE2EFieldsToBroadcast tacks `scheme` + `iv` onto a WS broadcast payload, but only
 // when the message is scheme=2 (client-side encrypted). For legacy scheme=1 we leave
@@ -50,7 +51,7 @@ func (h *webSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 	// (group). Anything else is a stale or buggy client — surface a clear
 	// error so the user knows to update their app.
 	if msgData.Scheme != models.SchemeClientSide {
-		return &wsError{message: "Обновите приложение: серверное шифрование больше не поддерживается"}
+		return &wsError{message: "Client update required: server-side encryption is no longer supported"}
 	}
 	// For group pairwise E2E (envelopes set), the top-level text is empty by design.
 	// In every other path we still require non-empty text + size limit.
@@ -69,7 +70,7 @@ func (h *webSocketHandler) handleSendMessage(ctx context.Context, userID uint, m
 	// Check access to chat
 	chat, err := h.chatService.FindChatByIDLight(ctx, msgData.ChatID)
 	if err != nil {
-		return &wsError{message: "Access denied to this chat"}
+		return &wsError{message: errMsgChatAccessDenied}
 	}
 	if len(msgData.Envelopes) > 0 && !chat.IsGroup {
 		return &wsError{message: "envelopes only valid for group chats"}
@@ -127,7 +128,7 @@ func (h *webSocketHandler) broadcastNewMessage(ctx context.Context, userID uint,
 // handleSendDirectMessage handles sending a message in a 1-on-1 chat.
 func (h *webSocketHandler) handleSendDirectMessage(ctx context.Context, userID uint, chat *models.Chat, msgData messageAction) (*models.Message, error) {
 	if !chat.HasUser(userID) {
-		return nil, &wsError{message: "Access denied to this chat"}
+		return nil, &wsError{message: errMsgChatAccessDenied}
 	}
 
 	otherUserID := chat.GetUser1ID()
@@ -172,7 +173,7 @@ func (h *webSocketHandler) handleSendGroupMessage(ctx context.Context, userID ui
 	// Verify membership
 	_, err := h.participantRepo.FindByUserAndChat(ctx, chat.ID, userID)
 	if err != nil {
-		return nil, &wsError{message: "Access denied to this chat"}
+		return nil, &wsError{message: errMsgChatAccessDenied}
 	}
 
 	// Get all member IDs and determine who is offline
@@ -241,7 +242,7 @@ func toServiceEnvelopes(in []messageEnvelopeAction) []services.MessageEnvelopeIn
 // would defeat the whole point of E2E.
 func pushBodyFromMessage(msgData messageAction) string {
 	if msgData.Scheme == models.SchemeClientSide {
-		return "Новое сообщение"
+		return i18n.NewMessagePush
 	}
 	text := msgData.Text
 	if runes := []rune(text); len(runes) > 200 {
@@ -306,7 +307,7 @@ func (h *webSocketHandler) handleEditMessage(ctx context.Context, userID uint, m
 		return &wsError{message: "Message ID required for edit"}
 	}
 	if msgData.Scheme != models.SchemeClientSide {
-		return &wsError{message: "Обновите приложение: серверное шифрование больше не поддерживается"}
+		return &wsError{message: "Client update required: server-side encryption is no longer supported"}
 	}
 	if len(msgData.Envelopes) == 0 {
 		if msgData.Text == "" {
@@ -668,7 +669,7 @@ func (h *webSocketHandler) dismissForParticipants(ctx context.Context, chatID ui
 func (h *webSocketHandler) checkWSChatAccess(ctx context.Context, chatID, userID uint) error {
 	chat, err := h.chatService.FindChatByIDLight(ctx, chatID)
 	if err != nil {
-		return &wsError{message: "Access denied to this chat"}
+		return &wsError{message: errMsgChatAccessDenied}
 	}
 
 	if chat.IsGroup {
@@ -676,13 +677,13 @@ func (h *webSocketHandler) checkWSChatAccess(ctx context.Context, chatID, userID
 			return &wsError{message: "Group chat not supported"}
 		}
 		if _, err := h.participantRepo.FindByUserAndChat(ctx, chatID, userID); err != nil {
-			return &wsError{message: "Access denied to this chat"}
+			return &wsError{message: errMsgChatAccessDenied}
 		}
 		return nil
 	}
 
 	if !chat.HasUser(userID) {
-		return &wsError{message: "Access denied to this chat"}
+		return &wsError{message: errMsgChatAccessDenied}
 	}
 	return nil
 }

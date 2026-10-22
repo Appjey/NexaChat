@@ -6,65 +6,28 @@ import { useAccountKey } from '../features/auth/AccountKey'
 import { useAuthContext } from '../features/auth/AuthContext'
 import { useCallContext } from '../features/calls/CallContext'
 import { ChatList } from '../features/chats/ChatList'
+import { readCachedChats, writeCachedChats } from '../features/chats/chatListCache'
 import { ChatWindow } from '../features/chats/ChatWindow'
 import { ForwardModal } from '../features/chats/ForwardModal'
+import { decryptMessages, decryptPins, selectScheme2Payload } from '../features/chats/threadCrypto'
 import { HamburgerButton } from '../features/menu/HamburgerButton'
 import { UpdateBanner } from '../features/updates/UpdateBanner'
 import { clearChat, deleteChat, getChatMessages, getCurrentUserChats, getPinnedMessages, pinMessage, unpinMessage } from '../shared/api/chatsApi'
+import { userMessage } from '../shared/api/errors'
 import { getGroupInfo } from '../shared/api/groupsApi'
 import { getUserPresence } from '../shared/api/presenceApi'
-import type { ChatItem, GroupInfoResponse, Message, PinnedMessage, WSEnvelope, WSEvent, WSMessageAction } from '../shared/api/types'
+import type { ChatItem, GroupInfoResponse, Message, PinnedMessage, WSEvent, WSMessageAction } from '../shared/api/types'
 import { decryptIncomingText } from '../shared/crypto/decryptIncoming'
 import { publicKeyBase64 } from '../shared/crypto/e2e'
 import { getChatKey, seedPeerPublicKey } from '../shared/crypto/peerKeys'
 import { dismissChatNotifications } from '../shared/dismissChatNotifications'
-import { loadCachedMessages, removeCachedMessages, saveCachedMessages } from '../shared/messageCache'
-
-// selectScheme2Payload picks (ciphertext, iv) for a scheme=2 WS broadcast. For
-// 1-on-1 it's just the top-level text/iv. For group pairwise (envelopes set)
-// it's the envelope addressed to the current user — if none is present the
-// current user wasn't a recipient (e.g. joined the group after the message
-// was sent) and we return null so the UI shows the placeholder.
-function selectScheme2Payload(
-  envelopes: WSEnvelope[] | undefined,
-  topText: string,
-  topIv: string | undefined,
-  currentUserId: number | undefined,
-): { text: string; iv: string | undefined } | null {
-  if (!envelopes || envelopes.length === 0) {
-    return { text: topText, iv: topIv }
-  }
-  if (!currentUserId) return null
-  const own = envelopes.find((e) => e.recipient_id === currentUserId)
-  if (!own) return null
-  return { text: own.ciphertext, iv: own.iv }
-}
 import { useAndroidBack } from '../shared/hooks/useAndroidBack'
 import { useGlobalWebSocket } from '../shared/hooks/useGlobalWebSocket'
 import { useShareTarget } from '../shared/hooks/useShareTarget'
+import { log } from '../shared/log'
+import { loadCachedMessages, removeCachedMessages, saveCachedMessages } from '../shared/messageCache'
 import { subscribePendingChat } from '../shared/pendingChat'
 import { subscribePendingShare } from '../shared/pendingShare'
-
-const CACHED_CHATS_KEY = 'cached_chats_list'
-
-function readCachedChats(): ChatItem[] {
-  try {
-    const raw = localStorage.getItem(CACHED_CHATS_KEY)
-    if (!raw) return []
-    const data = JSON.parse(raw) as ChatItem[]
-    return Array.isArray(data) ? data : []
-  } catch {
-    return []
-  }
-}
-
-function writeCachedChats(chats: ChatItem[]) {
-  try {
-    localStorage.setItem(CACHED_CHATS_KEY, JSON.stringify(chats))
-  } catch {
-    // ignore quota / serialization issues — caching is best-effort
-  }
-}
 
 export default function ChatsPage() {
   const { setMenuOpen, onChatSelectedRef } = useOutletContext<OutletContextType>()
@@ -98,7 +61,7 @@ export default function ChatsPage() {
         const pub = await publicKeyBase64(key)
         if (!cancelled) seedPeerPublicKey(user.id, pub)
       } catch (err) {
-        console.warn('failed to seed self pubkey into peer cache:', err)
+        log.warn('failed to seed self pubkey into peer cache:', err)
       }
     })()
     return () => {
@@ -200,7 +163,7 @@ export default function ChatsPage() {
   const handleWebSocketMessage = useCallback(
     (event: WSEvent) => {
       if ('error' in event) {
-        console.error('WebSocket error:', event.error)
+        log.error('WebSocket error:', event.error)
         return
       }
 
@@ -258,7 +221,7 @@ export default function ChatsPage() {
       ) {
         // Refresh group info and messages if viewing this group
         if (event.chat_id === activeChatId) {
-          getGroupInfo(event.chat_id).then(setGroupInfo).catch(console.error)
+          getGroupInfo(event.chat_id).then(setGroupInfo).catch(log.error)
           loadMessagesRef.current(event.chat_id)
         }
         // Reload chat list to reflect name/member changes
@@ -395,7 +358,7 @@ export default function ChatsPage() {
               return next
             })
           }
-        }).catch((err) => console.error('decrypt new message failed:', err))
+        }).catch((err) => log.error('decrypt new message failed:', err))
         return
       }
 
@@ -470,7 +433,7 @@ export default function ChatsPage() {
             saveCachedMessages(chatId, next)
             return next
           })
-        }).catch((err) => console.error('decrypt edit failed:', err))
+        }).catch((err) => log.error('decrypt edit failed:', err))
         return
       }
 
@@ -588,11 +551,11 @@ export default function ChatsPage() {
       setChats(sortedData)
       writeCachedChats(sortedData)
     } catch (err) {
-      console.error('Ошибка загрузки чатов', err)
+      log.error('Ошибка загрузки чатов', err)
       // Only surface the error if we have no cached data — otherwise the user sees their
       // last-known chat list, which is more useful than an error message.
       if (!haveData) {
-        setChatsError(err instanceof Error ? err.message : 'Не удалось загрузить чаты')
+        setChatsError(userMessage(err, 'Не удалось загрузить чаты'))
       }
     } finally {
       setLoadingChats(false)
@@ -639,25 +602,7 @@ export default function ChatsPage() {
       // each row's per-user envelope into text/iv, but each message may have a
       // different sender, so we derive a chat_key per unique sender_id. The
       // peerKeys cache makes the N lookups effectively free after the first.
-      const chat = chatsRef.current.find((c) => c.id === chatId)
-      const accountKey = accountKeyRef.current
-      let data: Message[]
-      if (chat?.is_group) {
-        const senderKeys = new Map<number, CryptoKey | null>()
-        const uniqueSenders = Array.from(new Set(raw.filter((m) => m.scheme === 2).map((m) => m.user_id)))
-        await Promise.all(
-          uniqueSenders.map(async (senderId) => {
-            senderKeys.set(senderId, await getChatKey(accountKey, senderId))
-          }),
-        )
-        data = await Promise.all(
-          raw.map((m) => decryptIncomingText(m, m.scheme === 2 ? (senderKeys.get(m.user_id) ?? null) : null)),
-        )
-      } else {
-        const peerUserId = chat?.other_user_id ?? null
-        const chatKey = await getChatKey(accountKey, peerUserId)
-        data = await Promise.all(raw.map((m) => decryptIncomingText(m, chatKey)))
-      }
+      const data = await decryptMessages(raw, chatsRef.current.find((c) => c.id === chatId), accountKeyRef.current)
       messageCacheRef.current.set(chatId, data)
       saveCachedMessages(chatId, data)
       setMessages(data)
@@ -682,10 +627,10 @@ export default function ChatsPage() {
       const newestId = data.reduce((max, m) => (m.id > max ? m.id : max), 0)
       if (newestId > 0) sendRef.current({ action: 'mark_read', chat_id: chatId, up_to_message_id: newestId })
     } catch (err) {
-      console.error('Ошибка загрузки сообщений', err)
+      log.error('Ошибка загрузки сообщений', err)
       if (!cached) {
         setMessages([])
-        setMessagesError(err instanceof Error ? err.message : 'Не удалось загрузить сообщения')
+        setMessagesError(userMessage(err, 'Не удалось загрузить сообщения'))
       }
     } finally {
       setLoadingMessages(false)
@@ -699,35 +644,9 @@ export default function ChatsPage() {
   const loadPinned = useCallback(async (chatId: number) => {
     try {
       const pins = await getPinnedMessages(chatId)
-      const chat = chatsRef.current.find((c) => c.id === chatId)
-      const accountKey = accountKeyRef.current
-      let decrypted: PinnedMessage[]
-      if (chat?.is_group) {
-        const senderKeys = new Map<number, CryptoKey | null>()
-        const uniqueSenders = Array.from(
-          new Set(pins.filter((p) => p.message.scheme === 2).map((p) => p.message.user_id)),
-        )
-        await Promise.all(
-          uniqueSenders.map(async (id) => senderKeys.set(id, await getChatKey(accountKey, id))),
-        )
-        decrypted = await Promise.all(
-          pins.map(async (p) => ({
-            ...p,
-            message: await decryptIncomingText(
-              p.message,
-              p.message.scheme === 2 ? (senderKeys.get(p.message.user_id) ?? null) : null,
-            ),
-          })),
-        )
-      } else {
-        const chatKey = await getChatKey(accountKey, chat?.other_user_id ?? null)
-        decrypted = await Promise.all(
-          pins.map(async (p) => ({ ...p, message: await decryptIncomingText(p.message, chatKey) })),
-        )
-      }
-      setPinnedMessages(decrypted)
+      setPinnedMessages(await decryptPins(pins, chatsRef.current.find((c) => c.id === chatId), accountKeyRef.current))
     } catch (err) {
-      console.error('Ошибка загрузки закреплённых', err)
+      log.error('Ошибка загрузки закреплённых', err)
     }
   }, [])
   loadPinnedRef.current = loadPinned
@@ -814,7 +733,7 @@ export default function ChatsPage() {
       // Load group info if it's a group chat
       const chat = chatsRef.current.find((c) => c.id === activeChatId)
       if (chat?.is_group) {
-        getGroupInfo(activeChatId).then(setGroupInfo).catch(console.error)
+        getGroupInfo(activeChatId).then(setGroupInfo).catch(log.error)
       } else {
         setGroupInfo(null)
       }
@@ -854,7 +773,7 @@ export default function ChatsPage() {
         prev.map((c) => c.id === chatId ? { ...c, last_message: '' } : c)
       )
     } catch (err) {
-      console.error('Failed to clear chat:', err)
+      log.error('Failed to clear chat:', err)
     }
   }, [activeChatId])
 
@@ -869,13 +788,13 @@ export default function ChatsPage() {
         setMessages([])
       }
     } catch (err) {
-      console.error('Failed to delete chat:', err)
+      log.error('Failed to delete chat:', err)
     }
   }, [activeChatId])
 
   const handleGroupUpdated = useCallback(() => {
     if (activeChatId) {
-      getGroupInfo(activeChatId).then(setGroupInfo).catch(console.error)
+      getGroupInfo(activeChatId).then(setGroupInfo).catch(log.error)
       loadMessages(activeChatId)
     }
     loadChats()
@@ -909,7 +828,7 @@ export default function ChatsPage() {
     try {
       await pinMessage(chatId, messageId)
     } catch (err) {
-      console.error('Failed to pin message:', err)
+      log.error('Failed to pin message:', err)
     }
   }, [])
 
@@ -917,9 +836,19 @@ export default function ChatsPage() {
     try {
       await unpinMessage(chatId, messageId)
     } catch (err) {
-      console.error('Failed to unpin message:', err)
+      log.error('Failed to unpin message:', err)
     }
   }, [])
+
+  // A peer's changed E2E key was accepted: messages received under the new
+  // key rendered as placeholders until now — re-fetch the thread and previews.
+  const handleE2EKeyAccepted = useCallback(() => {
+    if (activeChatId) {
+      loadMessages(activeChatId)
+      loadPinned(activeChatId)
+    }
+    loadChats()
+  }, [activeChatId, loadMessages, loadPinned, loadChats])
 
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === activeChatId),
@@ -947,7 +876,7 @@ export default function ChatsPage() {
           }
         })
         .catch((err) => {
-          console.error('Failed to load user presence:', err)
+          log.error('Failed to load user presence:', err)
         })
     }
   }, [activeChatOtherUserId, activeChatIsGroup])
@@ -1022,6 +951,7 @@ export default function ChatsPage() {
       <div className="telegram-chat-area">
         <ChatWindow
           chatId={activeChatId ?? undefined}
+          onE2EKeyAccepted={handleE2EKeyAccepted}
           messages={messages}
           otherUserId={activeChat?.other_user_id}
           otherUsername={activeChat?.is_favorites ? 'Избранное' : activeChat?.other_user_name}

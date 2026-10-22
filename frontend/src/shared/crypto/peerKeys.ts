@@ -1,5 +1,6 @@
 import { endpoints } from '../api/endpoints'
 import { httpGet } from '../api/httpClient'
+import { log } from '../log'
 import type { GroupEnvelope, GroupRecipientKey } from './e2e'
 import {
   deriveChatKey,
@@ -11,12 +12,13 @@ import {
   unwrapFileKey,
   wrapFileKey,
 } from './e2e'
+import { acceptNewKey, checkPin, pinKey } from './keyPins'
 
 /**
  * In-memory cache of other users' X25519 public keys, keyed by user_id.
  *
  *   - `string`  → user has E2E set up, value is the base64 public_key
- *   - `null`    → server confirmed no E2E for this user; sender should fall back to scheme=1
+ *   - `null`    → server confirmed no E2E for this user; the sender must block the send
  *   - missing   → not yet looked up
  *
  * Promises are memoised too so concurrent send paths don't issue duplicate HTTP
@@ -31,6 +33,72 @@ import {
  */
 const cache: Map<number, string> = new Map()
 const inflight: Map<number, Promise<string | null>> = new Map()
+
+// ---------- trust-on-first-use ----------
+//
+// Every key the server serves goes through `reconcileWithPin` before it is
+// used or cached. First sight pins it (keyPins.ts); a later key that differs
+// from the pin is NOT used — it is parked in `changedKeys` and a window event
+// tells the UI to show the key-change warning. Only an explicit
+// `acceptChangedKey` (user action) replaces the pin. Own key is exempt: it is
+// derived locally, not trusted from the server.
+
+/** Fired on `window` whenever the set of unaccepted key changes changes. */
+export const KEY_CHANGED_EVENT = 'e2e:key-changed'
+
+const changedKeys: Map<number, string> = new Map()
+let selfUserId: number | null = null
+
+function notifyKeyChange() {
+  try {
+    window.dispatchEvent(new Event(KEY_CHANGED_EVENT))
+  } catch {
+    // no window (tests)
+  }
+}
+
+/** Returns the key to use, or null when it differs from the pin and awaits the user's decision. */
+function reconcileWithPin(userId: number, served: string): string | null {
+  if (selfUserId !== null && userId === selfUserId) return served
+  const check = checkPin(userId, served)
+  if (check.status === 'new') {
+    pinKey(userId, served)
+    return served
+  }
+  if (check.status === 'match') {
+    if (changedKeys.delete(userId)) notifyKeyChange()
+    return served
+  }
+  if (changedKeys.get(userId) !== served) {
+    changedKeys.set(userId, served)
+    log.warn(`E2E: server served a different public_key for user ${userId}; refusing until accepted`)
+    notifyKeyChange()
+  }
+  return null
+}
+
+/** The key the server currently serves for a user whose pin it no longer matches, if any. */
+export function getChangedKey(userId: number): string | null {
+  return changedKeys.get(userId) ?? null
+}
+
+export function hasKeyChange(userId: number): boolean {
+  return changedKeys.has(userId)
+}
+
+/**
+ * The user looked at the warning (ideally compared the safety number) and
+ * accepts the new key: it becomes the pin, unverified, and sending resumes.
+ */
+export function acceptChangedKey(userId: number): boolean {
+  const key = changedKeys.get(userId)
+  if (!key) return false
+  acceptNewKey(userId, key)
+  changedKeys.delete(userId)
+  cache.set(userId, key)
+  notifyKeyChange()
+  return true
+}
 
 type ProfileResponse = { public_key?: string | null }
 
@@ -49,11 +117,13 @@ export async function getPeerPublicKey(userId: number): Promise<string | null> {
   const promise = (async () => {
     try {
       const profile = await httpGet<ProfileResponse>(endpoints.profile(userId))
-      const key = profile.public_key || null
+      const served = profile.public_key || null
+      if (!served) return null
+      const key = reconcileWithPin(userId, served)
       if (key) cache.set(userId, key)
       return key
     } catch (err) {
-      console.warn('failed to fetch peer public_key:', err)
+      log.warn('failed to fetch peer public_key:', err)
       // Don't cache failures forever — caller can retry. But don't refetch within
       // the same tick either; remove the inflight entry so the next attempt is fresh.
       return null
@@ -74,6 +144,8 @@ export async function getPeerPublicKey(userId: number): Promise<string | null> {
 export function clearPeerKeyCache(): void {
   cache.clear()
   inflight.clear()
+  changedKeys.clear()
+  selfUserId = null
 }
 
 /**
@@ -90,7 +162,11 @@ export function clearPeerKeyCache(): void {
  * without a guard.
  */
 export function seedPeerPublicKey(userId: number | null | undefined, publicKey: string | null | undefined): void {
-  if (userId && publicKey) cache.set(userId, publicKey)
+  if (userId && publicKey) {
+    cache.set(userId, publicKey)
+    // The seeded key is our own (derived locally) — exempt it from pinning.
+    selfUserId = userId
+  }
 }
 
 /**
@@ -130,6 +206,8 @@ type GroupKeysResponse = { members?: Array<{ user_id: number; public_key: string
 export type GroupKeyStatus = {
   recipients: GroupRecipientKey[]
   missingUserIds: number[]
+  /** Members whose served key differs from the pinned one and is not accepted yet. */
+  changedUserIds: number[]
 }
 
 /**
@@ -143,14 +221,19 @@ export async function getGroupKeyStatus(chatId: number): Promise<GroupKeyStatus 
   try {
     const resp = await httpGet<GroupKeysResponse>(endpoints.groups.keys(chatId))
     const members = resp.members ?? []
-    const recipients: GroupRecipientKey[] = members.map((m) => ({
-      userID: m.user_id,
-      publicKey: m.public_key,
-    }))
-    const missingUserIds = recipients.filter((r) => !r.publicKey).map((r) => r.userID)
-    return { recipients, missingUserIds }
+    const changedUserIds: number[] = []
+    const recipients: GroupRecipientKey[] = members.map((m) => {
+      if (!m.public_key) return { userID: m.user_id, publicKey: '' }
+      const key = reconcileWithPin(m.user_id, m.public_key)
+      if (!key) changedUserIds.push(m.user_id)
+      return { userID: m.user_id, publicKey: key ?? '' }
+    })
+    const missingUserIds = recipients
+      .filter((r) => !r.publicKey && !changedUserIds.includes(r.userID))
+      .map((r) => r.userID)
+    return { recipients, missingUserIds, changedUserIds }
   } catch (err) {
-    console.warn('failed to fetch group keys:', err)
+    log.warn('failed to fetch group keys:', err)
     return null
   }
 }
@@ -311,6 +394,9 @@ export async function encryptGroupMessage(
 ): Promise<GroupEnvelope[]> {
   if (status.missingUserIds.length > 0) {
     throw new Error(`encryptGroupMessage: ${status.missingUserIds.length} members missing public_key`)
+  }
+  if (status.changedUserIds.length > 0) {
+    throw new Error(`encryptGroupMessage: ${status.changedUserIds.length} members have an unaccepted key change`)
   }
   if (!status.recipients.some((r) => r.userID === senderUserId)) {
     throw new Error('encryptGroupMessage: sender not in recipient list')

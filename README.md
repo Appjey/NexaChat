@@ -117,7 +117,11 @@ GET    /api/avatars/:user_id
 GET    /api/group-avatars/:chat_id
 ```
 
-**Protected** (JWT required):
+**Protected** (JWT required). Native shells send `Authorization: Bearer <token>`
+(and `?token=` on the WebSocket handshake). The website never sees the token:
+login sets it as an `HttpOnly; SameSite=Strict` cookie, which the browser
+attaches to same-origin API calls and to the `/ws` handshake; cookie requests
+that carry an `Origin` header must match `ALLOWED_ORIGINS` (CSRF guard).
 ```
 # Auth + E2E vault
 POST   /api/auth/logout           GET  /api/auth/me
@@ -159,6 +163,9 @@ GET    /api/unread                GET  /api/unread/counts
 GET    /api/push/vapid-key        POST /api/push/subscribe
 POST   /api/push/unsubscribe      GET  /api/push/status
 POST   /api/push/fcm/register     POST /api/push/fcm/unregister
+
+# Client error reports (frontend log.error / uncaught exceptions → backend log)
+POST   /api/client-errors
 
 WS     /ws
 ```
@@ -207,7 +214,11 @@ npm test                               # Vitest (includes E2E crypto roundtrip s
 
 **Desktop (macOS, Apple Silicon):** `cd frontend/electron && npm install` once, then `npm run dist:desktop` from `frontend/` produces `electron/release/Messenger-<version>-mac-arm64.dmg`. The shell serves the bundled web app from the `https://localhost` origin (same one the Android WebView reports), so the backend CORS allow-list needs no changes; API/WS traffic goes to the host baked in via `.env.desktop`. Without a Developer ID certificate the app is ad-hoc signed — on another Mac use right-click → Open on first launch (no notarization).
 
-**Backend linting (CI parity):** run `golangci-lint` v1.64.8 inside Docker — the native Windows binary peaks past 7 GB RAM and trashes the host. See `CLAUDE.md` for the exact command.
+**Backend linting (CI parity):** golangci-lint v2 (config in `backend/.golangci.yaml`). Run it inside Docker — the native Windows binary peaks past 7 GB RAM and trashes the host:
+
+```bash
+docker run --rm -v "$PWD/backend":/app -w /app -e GOFLAGS=-buildvcs=false -e GOTOOLCHAIN=auto golangci/golangci-lint:v2.15.0 golangci-lint run --timeout=5m ./...
+```
 
 ## CI/CD
 
@@ -243,8 +254,7 @@ Default policy: `min_supported_version_code = version_code` for the new release,
 making every release a mandatory upgrade for older installs. Override for an
 optional release: `gh workflow run release.yml -f min_supported=1`.
 
-Required secrets / variables are documented in the header of `release.yml`
-and in `CLAUDE.md`.
+Required secrets / variables are documented in the header of `release.yml`.
 
 ## Deployment (Production)
 
@@ -276,6 +286,8 @@ Object storage runs on Chainguard's MinIO build (`cgr.dev/chainguard/minio`, pin
 | Connections per user | 5 |
 | Rate limit (WS) | 10 msg/s |
 | Rate limit (HTTP) | 30 req/s/IP |
+| Login failures | 5 per username / 30 per IP within 15 min → 15 min lockout (429 + Retry-After) |
+| Password length | 8+ chars (registration and password change) |
 | Message text | 10 000 chars |
 | Group members | 50 |
 | Images | 100 MB |

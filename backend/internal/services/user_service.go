@@ -28,12 +28,12 @@ type UserService struct {
 func NewUserService(
 	logger *zap.Logger,
 	userRepo *repositories.UserRepo,
-	storage storage.Storage,
+	fileStorage storage.Storage,
 ) *UserService {
 	return &UserService{
 		logger:    logger,
 		userRepo:  userRepo,
-		storage:   storage,
+		storage:   fileStorage,
 		validator: &fileValidator{},
 	}
 }

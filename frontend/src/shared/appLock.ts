@@ -13,6 +13,7 @@
 // is the durable mirror hydrated back in main.tsx before first render — so
 // the "lock on cold start" decision never flashes unlocked content.
 
+import { log } from './log'
 import { getPlatform } from './platform'
 
 const KEY_ENABLED = 'app_lock_enabled'
@@ -55,7 +56,7 @@ function write(key: string, value: string | null) {
       if (value === null) await Preferences.remove({ key })
       else await Preferences.set({ key, value })
     } catch (err) {
-      console.warn('appLock: failed to mirror to Preferences:', err)
+      log.warn('appLock: failed to mirror to Preferences:', err)
     }
   })()
 }
@@ -72,7 +73,7 @@ export async function hydrateAppLockPrefs(): Promise<void> {
       else localStorage.setItem(key, value)
     }
   } catch (err) {
-    console.warn('appLock: hydrate failed:', err)
+    log.warn('appLock: hydrate failed:', err)
   }
 }
 

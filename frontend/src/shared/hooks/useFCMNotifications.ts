@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 
 import { registerFCMToken, unregisterFCMToken } from '../api/pushApi'
+import { log } from '../log'
 import { getPlatform, isNative } from '../platform'
 
 const STORED_TOKEN_KEY = 'fcm_token'
@@ -32,7 +33,7 @@ export function useFCMNotifications(enabled: boolean) {
         receive = req.receive
       }
       if (receive !== 'granted') {
-        console.warn('FCM: notification permission not granted')
+        log.warn('FCM: notification permission not granted')
         return
       }
 
@@ -45,12 +46,12 @@ export function useFCMNotifications(enabled: boolean) {
           await registerFCMToken(token.value, getPlatform() as 'android' | 'ios')
           localStorage.setItem(STORED_TOKEN_KEY, token.value)
         } catch (err) {
-          console.error('FCM: failed to register token with backend', err)
+          log.error('FCM: failed to register token with backend', err)
         }
       })
 
       errorListener = await PushNotifications.addListener('registrationError', (err) => {
-        console.error('FCM registration error', err)
+        log.error('FCM registration error', err)
       })
 
       await PushNotifications.register()
@@ -74,7 +75,7 @@ export async function unregisterFCMDevice() {
   try {
     await unregisterFCMToken(token)
   } catch (err) {
-    console.warn('FCM: backend unregister failed', err)
+    log.warn('FCM: backend unregister failed', err)
   }
   localStorage.removeItem(STORED_TOKEN_KEY)
 }

@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"strings"
 
+	"messenger/internal/i18n"
 	"messenger/internal/models"
 	"messenger/internal/repositories"
 	"messenger/internal/storage"
@@ -19,7 +20,7 @@ import (
 const (
 	maxGroupNameLength = 100
 	maxGroupMembers    = 50
-	unknownActorName   = "Кто-то"
+	unknownActorName   = i18n.SomeoneName
 )
 
 // GroupService handles business logic for group chats.
@@ -123,7 +124,7 @@ func (s *GroupService) createGroupInTx(ctx context.Context, tx *gorm.DB, creator
 		}
 	}
 
-	sysText := fmt.Sprintf("%s создал(а) группу", creator.GetDisplayName())
+	sysText := i18n.GroupCreated(creator.GetDisplayName())
 	if err := createSystemMessage(ctx, messageRepo, chat.ID, sysText); err != nil {
 		return nil, err
 	}
@@ -305,7 +306,7 @@ func (s *GroupService) createMemberAddedMessage(ctx context.Context, messageRepo
 		s.logger.Warn("failed to find member for system message", zap.Uint("member_id", memberID), zap.Error(err))
 		return
 	}
-	sysText := fmt.Sprintf("%s добавлен(а) пользователем %s", member.GetDisplayName(), actor.GetDisplayName())
+	sysText := i18n.MemberAdded(member.GetDisplayName(), actor.GetDisplayName())
 	if err := createSystemMessage(ctx, messageRepo, chatID, sysText); err != nil {
 		s.logger.Warn("failed to create member added system message", zap.Error(err))
 	}
@@ -364,11 +365,11 @@ func (s *GroupService) RemoveMember(ctx context.Context, chatID, actorID, target
 		if actor != nil {
 			actorName = actor.GetDisplayName()
 		}
-		targetName := "пользователь"
+		targetName := i18n.UnknownUserLower
 		if target != nil {
 			targetName = target.GetDisplayName()
 		}
-		sysText := fmt.Sprintf("%s удалён(а) пользователем %s", targetName, actorName)
+		sysText := i18n.MemberRemoved(targetName, actorName)
 		return createSystemMessage(ctx, messageRepo, chatID, sysText)
 	})
 }
@@ -402,11 +403,11 @@ func (s *GroupService) LeaveGroup(ctx context.Context, chatID, userID uint) erro
 			s.logger.Warn("failed to clean unread for leaving user", zap.Error(err))
 		}
 
-		userName := "Пользователь"
+		userName := i18n.UnknownUser
 		if user != nil {
 			userName = user.GetDisplayName()
 		}
-		sysText := fmt.Sprintf("%s покинул(а) группу", userName)
+		sysText := i18n.MemberLeft(userName)
 		return createSystemMessage(ctx, messageRepo, chatID, sysText)
 	})
 }
@@ -457,18 +458,17 @@ func (s *GroupService) ChangeRole(ctx context.Context, chatID, actorID, targetUs
 		if actor != nil {
 			actorName = actor.GetDisplayName()
 		}
-		targetName := "пользователь"
+		targetName := i18n.UnknownUserLower
 		if target != nil {
 			targetName = target.GetDisplayName()
 		}
 
-		var action string
+		var sysText string
 		if newRole == models.RoleAdmin {
-			action = "назначен(а) администратором"
+			sysText = i18n.RolePromoted(targetName, actorName)
 		} else {
-			action = "снят(а) с должности администратора"
+			sysText = i18n.RoleDemoted(targetName, actorName)
 		}
-		sysText := fmt.Sprintf("%s %s пользователем %s", targetName, action, actorName)
 		return createSystemMessage(ctx, messageRepo, chatID, sysText)
 	})
 }
@@ -492,7 +492,7 @@ func (s *GroupService) UpdateGroupInfo(ctx context.Context, chatID, actorID uint
 		}
 
 		actorName := resolveActorName(ctx, s.userRepo, actorID)
-		sysText := fmt.Sprintf("%s изменил(а) название группы на «%s»", actorName, name)
+		sysText := i18n.GroupRenamed(actorName, name)
 		return createSystemMessage(ctx, messageRepo, chatID, sysText)
 	})
 }
@@ -624,7 +624,7 @@ func (s *GroupService) GetParticipantUserIDs(ctx context.Context, chatID uint) (
 
 // GroupParticipantKey carries the X25519 public_key for a single participant.
 // Empty PublicKey means the user hasn't completed E2E onboarding yet, in which
-// case the calling client must fall back to scheme=1 for the whole group send.
+// case the calling client must block the group send until every member has a key.
 type GroupParticipantKey struct {
 	UserID    uint   `json:"user_id"`
 	PublicKey string `json:"public_key"`
@@ -633,7 +633,7 @@ type GroupParticipantKey struct {
 // GetGroupParticipantKeys returns the X25519 public_key of every group member,
 // keyed by user_id. Used by clients before composing a scheme=2 group message:
 //   - if every key is non-empty, encrypt one envelope per recipient (pairwise);
-//   - otherwise fall back to scheme=1 so users without E2E setup can still read.
+//   - otherwise the send is blocked so no member is left unable to read.
 //
 // The caller-authorisation check (only members may read) belongs to the handler.
 func (s *GroupService) GetGroupParticipantKeys(ctx context.Context, chatID uint) ([]GroupParticipantKey, error) {

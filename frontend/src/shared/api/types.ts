@@ -27,9 +27,11 @@ export type UserProfile = {
   created_at?: string
   updated_at?: string
   // Same E2E vault material echoed back on /api/auth/me so the app shell can decide
-  // whether to set up E2E for this user or just keep using legacy scheme=1 messages.
+  // whether this user still has to set up E2E (LazyVaultModal) — E2E is mandatory.
   vault_salt?: string | null
   encrypted_account_key?: string | null
+  // X25519 public key (base64) — present on GET /api/profile/:id for peers.
+  public_key?: string | null
 }
 
 // Chats

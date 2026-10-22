@@ -38,6 +38,14 @@ export default defineConfig([
       // Import sorting — autofix
       'simple-import-sort/imports': 'error',
       'simple-import-sort/exports': 'error',
+
+      // Logging goes through shared/log.ts (dev-only debug, reported errors).
+      'no-console': 'error',
     },
+  },
+  {
+    // The logger itself, and the build config (node, prints build-time warnings).
+    files: ['src/shared/log.ts', 'vite.config.ts'],
+    rules: { 'no-console': 'off' },
   },
 ])

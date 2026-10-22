@@ -8,6 +8,7 @@ import { CheckIcon, CloseIcon, PersonAddIcon, TrashIcon } from '../../shared/com
 import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useLongPress } from '../../shared/hooks/useLongPress'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
+import { log } from '../../shared/log'
 
 type Props = {
   isOpen: boolean
@@ -145,7 +146,7 @@ export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContac
       .then((data) => {
         if (!cancelled) setContacts(data)
       })
-      .catch(console.error)
+      .catch(log.error)
       .finally(() => {
         if (!cancelled) setLoading(false)
       })
@@ -178,7 +179,7 @@ export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContac
         const users = await searchUsers(query)
         setSearchResults(users)
       } catch (err) {
-        console.error('Search failed:', err)
+        log.error('Search failed:', err)
       } finally {
         setSearching(false)
       }
@@ -203,7 +204,7 @@ export function ContactsModal({ isOpen, onClose, onSelectContact, onRemoveContac
       await addContact(user.id)
       setContacts((prev) => [...prev, user])
     } catch (err) {
-      console.error('Failed to add contact:', err)
+      log.error('Failed to add contact:', err)
     } finally {
       setAddingId(null)
     }

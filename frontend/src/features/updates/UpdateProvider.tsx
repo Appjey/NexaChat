@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 
 import { type AppRelease, fetchLatestRelease } from '../../shared/api/updatesApi'
+import { log } from '../../shared/log'
 import { Updater } from '../../shared/nativeUpdater'
 import { isNative } from '../../shared/platform'
 import { UpdateContext, type UpdateState } from './UpdateContext'
@@ -54,7 +55,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
             currentVersionCode: null,
             mandatory: false,
           })
-          console.warn('getCurrentVersion failed:', err)
+          log.warn('getCurrentVersion failed:', err)
           return
         }
       }
@@ -130,7 +131,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
             }
           }
         } catch (err) {
-          console.warn('hydrate dismissed-version failed:', err)
+          log.warn('hydrate dismissed-version failed:', err)
         }
       }
       if (cancelled) return

@@ -124,6 +124,10 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # Must match STORAGE_S3_PUBLIC_ENDPOINT of the backend: the CSP in the
+        # built index.html only allows attachment downloads from this origin.
+        VITE_FILES_ORIGIN: ${STORAGE_S3_PUBLIC_ENDPOINT:-http://localhost:9000}
     image: ${FRONTEND_IMAGE:-nothing-frontend:latest}
     container_name: nothing-frontend
     restart: unless-stopped

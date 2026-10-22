@@ -44,9 +44,9 @@ type fileHandler struct {
 }
 
 // newFileHandler creates a new file handler
-func newFileHandler(storage storage.Storage, logger *zap.Logger) *fileHandler {
+func newFileHandler(fileStorage storage.Storage, logger *zap.Logger) *fileHandler {
 	return &fileHandler{
-		storage: storage,
+		storage: fileStorage,
 		logger:  logger,
 	}
 }

@@ -1,3 +1,4 @@
+import { log } from '../log'
 import { decryptMessage } from './e2e'
 
 /** Placeholder shown for a scheme=2 message we can't decrypt — missing chat_key or corrupt ciphertext. */
@@ -27,7 +28,7 @@ export async function decryptIncomingText<T extends AnyTextHolder>(
     const plaintext = await decryptMessage(payload.text, payload.iv, chatKey)
     return { ...payload, text: plaintext, iv: '' }
   } catch (err) {
-    console.warn('E2E decrypt failed:', err)
+    log.warn('E2E decrypt failed:', err)
     return { ...payload, text: ENCRYPTED_PLACEHOLDER, iv: '' }
   }
 }

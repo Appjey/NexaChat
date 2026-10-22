@@ -8,8 +8,11 @@ android {
         applicationId "com.messenger.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // Baseline only. release.yml overwrites both from the git tag and the
+        // run number; keep versionName equal to frontend/package.json and
+        // frontend/electron/package.json (the last released version).
+        versionCode 17
+        versionName "1.5.5"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

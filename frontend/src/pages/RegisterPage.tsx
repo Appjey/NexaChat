@@ -5,8 +5,10 @@ import { useAccountKey } from '../features/auth/AccountKey'
 import { useAuthContext } from '../features/auth/AuthContext'
 import { bootstrapVaultOnLogin } from '../features/auth/vaultBootstrap'
 import { endpoints } from '../shared/api/endpoints'
+import { userMessage } from '../shared/api/errors'
 import { httpPost, setAuthToken } from '../shared/api/httpClient'
 import type { AuthRegisterResponse } from '../shared/api/types'
+import { log } from '../shared/log'
 
 export default function RegisterPage() {
   const [username, setUsername] = useState('')
@@ -51,18 +53,18 @@ export default function RegisterPage() {
       // First login of this account — server has no vault material yet, so this
       // path always generates a fresh account_key, encrypts it under the new
       // password, and uploads. Failures are non-fatal: registration succeeded,
-      // user just gets legacy scheme=1 messages until they try again.
+      // LazyVaultModal prompts for the password again until the key exists.
       try {
         const key = await bootstrapVaultOnLogin(password, res)
         if (key) accountKeyCtx.setKey(key)
       } catch (e2eErr) {
-        console.error('E2E vault setup failed during registration:', e2eErr)
+        log.error('E2E vault setup failed during registration:', e2eErr)
       }
 
       await refreshProfile()
       navigate('/')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка регистрации')
+      setError(userMessage(err, 'Ошибка регистрации'))
     } finally {
       setSubmitting(false)
     }
@@ -121,9 +123,9 @@ export default function RegisterPage() {
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="Минимум 6 символов"
+              placeholder="Минимум 8 символов"
               required
-              minLength={6}
+              minLength={8}
               autoComplete="new-password"
             />
           </div>

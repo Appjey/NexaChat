@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { endpoints } from '../../shared/api/endpoints'
-import { getAuthToken, httpGet, httpPost, setAuthToken, UNAUTHORIZED_EVENT } from '../../shared/api/httpClient'
+import { userMessage } from '../../shared/api/errors'
+import { hasAuthSession, httpGet, httpPost, setAuthToken, UNAUTHORIZED_EVENT } from '../../shared/api/httpClient'
 import type { UserProfile } from '../../shared/api/types'
 import { clearAppLockOnLogout } from '../../shared/appLock'
 import { clearStoredAccountKey } from '../../shared/crypto/e2e'
+import { clearKeyPins } from '../../shared/crypto/keyPins'
 import { clearPeerKeyCache } from '../../shared/crypto/peerKeys'
 import { unregisterFCMDevice } from '../../shared/hooks/useFCMNotifications'
+import { log } from '../../shared/log'
 import { clearAllCachedMessages } from '../../shared/messageCache'
 
 const CACHED_PROFILE_KEY = 'cached_user_profile'
@@ -50,7 +53,7 @@ export function useAuth() {
       writeCachedProfile(profile)
       initializedRef.current = true
     } catch (err) {
-      console.error('Не удалось получить профиль', err)
+      log.error('Не удалось получить профиль', err)
       // Don't blow away cached profile on transient errors — only on auth failure,
       // which the caller signals by clearing the token. The cached profile lets the
       // shell render while we retry in the background.
@@ -58,7 +61,7 @@ export function useAuth() {
       if (!cached) {
         setUser(null)
       }
-      setError(err instanceof Error ? err.message : 'Не удалось получить профиль')
+      setError(userMessage(err, 'Не удалось получить профиль'))
     } finally {
       setLoading(false)
     }
@@ -88,6 +91,9 @@ export function useAuth() {
     // Drop the in-memory peer public_key cache so a new user doesn't accidentally
     // see "trusted" entries left over from the previous session.
     clearPeerKeyCache()
+    // Key pins are this account's trust decisions about peers' keys; the next
+    // account on this device starts from first-use again.
+    clearKeyPins()
     // App-lock is per-account device state: the previous owner's biometrics
     // must not unlock the next login, and the next login re-gets the offer.
     clearAppLockOnLogout()
@@ -103,8 +109,8 @@ export function useAuth() {
       // Revokes this device's session server-side; other devices stay signed in.
       await httpPost(endpoints.auth.logout)
     } catch (err) {
-      console.error('Не удалось выйти из аккаунта', err)
-      setError(err instanceof Error ? err.message : 'Не удалось выйти из аккаунта')
+      log.error('Не удалось выйти из аккаунта', err)
+      setError(userMessage(err, 'Не удалось выйти из аккаунта'))
     } finally {
       await clearLocalSession()
     }
@@ -127,8 +133,7 @@ export function useAuth() {
   // app launch — the user sees their last-known profile immediately and any changes
   // appear silently once the request resolves.
   useEffect(() => {
-    const token = getAuthToken()
-    if (!token) {
+    if (!hasAuthSession()) {
       setLoading(false)
       return
     }

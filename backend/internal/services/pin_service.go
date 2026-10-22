@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"messenger/internal/i18n"
 	"messenger/internal/models"
 	"messenger/internal/repositories"
 
@@ -104,7 +105,7 @@ func (s *PinService) PinMessage(ctx context.Context, chatID, messageID, userID u
 		}
 
 		actorName := resolveActorName(ctx, s.userRepo, userID)
-		sysText := fmt.Sprintf("%s закрепил(а) сообщение", actorName)
+		sysText := i18n.MessagePinned(actorName)
 		return createSystemMessage(ctx, messageRepo, chatID, sysText)
 	})
 	if err != nil {
@@ -143,7 +144,7 @@ func (s *PinService) UnpinMessage(ctx context.Context, chatID, messageID, userID
 		}
 
 		actorName := resolveActorName(ctx, s.userRepo, userID)
-		sysText := fmt.Sprintf("%s открепил(а) сообщение", actorName)
+		sysText := i18n.MessageUnpinned(actorName)
 		return createSystemMessage(ctx, messageRepo, chatID, sysText)
 	})
 }

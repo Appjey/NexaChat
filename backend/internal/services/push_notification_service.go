@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"messenger/internal/i18n"
 	"messenger/internal/models"
 	"messenger/internal/repositories"
 
@@ -268,7 +269,7 @@ func (s *PushNotificationService) SendCallPush(ctx context.Context, recipientUse
 
 	payloadJSON, err := json.Marshal(callPayload{
 		Type:     "call",
-		Title:    "Входящий звонок",
+		Title:    i18n.IncomingCallTitle,
 		Body:     callerName,
 		ChatID:   chatID,
 		CallID:   callID,

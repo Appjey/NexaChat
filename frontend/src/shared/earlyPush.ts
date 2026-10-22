@@ -6,6 +6,7 @@
 // long-background if the listener is registered lazily inside a React effect — by then the
 // native side has already flushed and discarded the pending event.
 
+import { log } from './log'
 import { setPendingCall } from './pendingCall'
 import { setPendingChat } from './pendingChat'
 import { isNative } from './platform'
@@ -64,11 +65,11 @@ export function initEarlyPushHandlers() {
           if (toRemove.length === 0) return
           await PushNotifications.removeDeliveredNotifications({ notifications: toRemove })
         } catch (err) {
-          console.warn('earlyPush: dismiss handling failed', err)
+          log.warn('earlyPush: dismiss handling failed', err)
         }
       })
     } catch (err) {
-      console.error('earlyPush: failed to register push listeners', err)
+      log.error('earlyPush: failed to register push listeners', err)
     }
   })()
 }

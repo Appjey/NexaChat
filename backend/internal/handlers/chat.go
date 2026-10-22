@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"messenger/internal/i18n"
 	"messenger/internal/models"
 	"messenger/internal/services"
 	"messenger/internal/storage"
@@ -278,9 +279,9 @@ func formatLastMessage(lastMsg *models.Message, err error) string {
 		// that with a generic attachment label instead of the lock placeholder;
 		// the client overrides it with the decrypted text when there is text.
 		if len(lastMsg.Attachments) > 0 {
-			return "📎 Вложение"
+			return i18n.AttachmentPlaceholder
 		}
-		return "🔒 Зашифрованное сообщение"
+		return i18n.EncryptedPlaceholder
 	}
 
 	text := lastMsg.Text

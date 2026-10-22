@@ -141,9 +141,11 @@ operator just runs the existing decrypt path."
 
 What the server **can** still do:
 * See who messages whom and when — message metadata is in the clear.
-* Replace `users.public_key` with their own (MITM the introduction). We
-  don't have a key verification UI yet; that's a Phase D concern if we
-  want defence against an actively malicious operator.
+* Replace `users.public_key` with their own (MITM the introduction) — but
+  only against a peer the client has never seen. Clients pin the first key
+  they see per user and refuse a different one until the user accepts it
+  explicitly; safety numbers let two people detect a swap out of band. See
+  "Key verification" below.
 * Read system messages ("Bob joined the group") — they are intentionally
   plaintext (no IV) so they don't need a key.
 
@@ -156,6 +158,95 @@ remain stored but indistinguishable from random data. We discussed adding a
 and decided against it for v1 — every parallel decryption path is permanent
 architectural cost. The path is left open: if recovery becomes a requirement
 later, add a column, add `PUT /api/auth/recovery`, done.
+
+## Key verification (TOFU + safety numbers)
+
+Implemented client-side only; the server is unchanged.
+
+**Pinning.** Every `public_key` the client receives for another user — from
+`GET /api/profile/:id` (1-on-1) or `GET /api/groups/:id/keys` (groups) — goes
+through `shared/crypto/keyPins.ts` before it is used or cached
+(`peerKeys.reconcileWithPin`):
+
+* first sight → the key is pinned on the device (`localStorage` +
+  Capacitor Preferences mirror, key `e2e_key_pins_v1`, hydrated at boot);
+* same as the pin → used;
+* different from the pin → **not used**. The key is parked, a
+  `e2e:key-changed` window event fires, and the chat shows a red banner
+  with the composer disabled. Messages that arrive encrypted under the new
+  key render as the `[зашифрованное сообщение]` placeholder until the user
+  presses «Принять новый ключ»; after that the pin is replaced (unverified)
+  and the thread is re-fetched. The user's own key is exempt (derived
+  locally, never trusted from the server).
+
+A key legitimately changes only when the user opts out of E2E and back in
+(`PUT /api/auth/vault`). A password change re-wraps the same `account_key`,
+so the public key — and every pin that points at it — stays valid. Pins are
+per account on the device and are wiped on logout.
+
+**Safety number.** For users A and B (ordered by id):
+
+```
+SHA-256( "nothing-safety-v1" || id_A (8 bytes BE) || key_A (32 bytes)
+                              || id_B (8 bytes BE) || key_B (32 bytes) )
+```
+
+rendered as 60 decimal digits in 12 groups of 5 (digest as an unsigned
+big-endian integer, zero-padded to 78 digits, first 60). Both devices compute
+it from their *pinned* view of the peer's key, so it is identical on both
+phones exactly when neither side holds a substituted key. It is shown in the
+peer's profile («Шифрование»), together with an «Отметить как сверенный»
+toggle; the own profile shows the key fingerprint
+(`SHA-256("nothing-key-fp-v1" || key)`, first 16 bytes, hex) so a user can
+read it to a peer. Group member lists show «✓ проверен» / «⚠ ключ изменился»
+per member; a group send is blocked while any member's key change is
+unaccepted.
+
+What this does **not** do: it cannot tell a legitimate re-setup from an
+attack — only the humans can, by comparing the safety number. It also does
+not protect the very first contact if the server lied from the start
+(classic TOFU limitation); verifying the safety number closes that gap.
+
+## Forward secrecy
+
+**Status: not provided, by design decision (2026-10).**
+
+Today `chat_key = HKDF(X25519(my_static, peer_static))` is the same key for
+the lifetime of the pair. AES-GCM uses a fresh random IV per message, which
+is confidentiality, not secrecy over time: whoever obtains a user's
+`account_key` (phone forensics, a leaked backup, a future password
+compromise) can decrypt every message that user ever sent or received, past
+and future, and nothing in the protocol heals after a compromise (no
+post-compromise security either).
+
+Options considered:
+
+* **Double Ratchet + X3DH (Signal).** Real FS and PCS. Requires per-device
+  identity and prekey bundles on the server, per-device ratchet state, and —
+  the expensive part for this product — gives up the "same password → same
+  keys on every device, new device sees full history instantly" property.
+  History and session state would have to be synced between a user's own
+  devices through a new, separately secured channel, and groups need Sender
+  Keys on top. Estimate: 4–6 weeks of protocol work plus the multi-device
+  sync feature, and a one-way migration for existing chats.
+* **MLS.** Same cost class with a bigger surface; only makes sense for large
+  groups, which this product caps at 50.
+* **Periodic account keypair rotation** (re-wrap under a new X25519 key).
+  Limits the blast radius of a *future* key leak to messages after the
+  rotation, but a leaked `account_key` still unlocks everything derived from
+  it — not FS, and it breaks the deterministic multi-device derivation.
+* **Per-chat hash ratchet** derived from the static `chat_key` (FS-lite):
+  past messages become unreadable to someone who captures the current chain
+  state, but a new device can no longer decrypt history unless the chain
+  state is uploaded wrapped under `account_key` — which hands the same
+  attacker the same history. Net gain close to zero here.
+
+Decision: keep the static scheme, document it as a known limitation, and
+revisit only if the product drops the zero-sync multi-device model. The
+compensating controls are the ones that protect `account_key` at rest:
+app-private storage, `allowBackup=false` plus `dataExtractionRules` on
+Android, the biometric app lock, session revocation, and the CSP that stops
+an XSS from exfiltrating the key.
 
 ## API surface
 
@@ -243,6 +334,24 @@ payload, push it, decrypt client-side via service worker / native handler —
 but that's a separate piece of work.
 
 ## Frontend lifecycle
+
+Storage differs by runtime. Native (Capacitor) and Electron keep the raw
+`account_key` in localStorage (mirrored to Capacitor Preferences on Android)
+so the app opens without a password. A plain browser tab never stores the
+raw key: on login it derives the X25519 pair once, imports the private half
+into WebCrypto as a **non-extractable** key (`shared/crypto/identityStore.ts`)
+and persists that `CryptoKey` object in IndexedDB. The page can still run
+ECDH with it, so the user is not asked for the password again, but the
+browser refuses to export its bytes — an XSS can decrypt while the tab is
+open, it cannot take the key away. WebCrypto X25519 needs Chrome 133+,
+Firefox 130+ or Safari 17+; older engines fall back to keeping the raw key in
+`sessionStorage` for the window's lifetime and ask for the password on the
+next visit. Because the raw `account_key` is no longer at hand in a browser,
+the password-change form re-opens the vault with the old password to re-wrap
+it. The browser build also keeps no plaintext message or chat-list cache and
+never holds the JWT in JS (HttpOnly cookie, see README). Key pins stay in
+localStorage on every runtime — they are public keys, the only requirement
+is integrity.
 
 1. **First login** — server returns `vault_salt: null`, `encrypted_account_key:
    null`, `public_key: null`. Client generates `account_key` (32 random bytes

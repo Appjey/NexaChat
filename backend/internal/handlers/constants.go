@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"messenger/internal/i18n"
 	"time"
 )
 
@@ -11,8 +12,10 @@ var errAccessDenied = errors.New("access denied")
 // Service-layer error messages used for matching in handlers.
 const (
 	errMsgAccessDenied = "access denied"
-	errMsgChatNotFound = "chat not found"
-	errMsgMsgNotFound  = "message not found"
+	// errMsgChatAccessDenied is the WS-side wording used by every chat-scoped action.
+	errMsgChatAccessDenied = "Access denied to this chat"
+	errMsgChatNotFound     = "chat not found"
+	errMsgMsgNotFound      = "message not found"
 )
 
 // Message and chat constants.
@@ -44,7 +47,7 @@ const (
 )
 
 // callMissedText is the plaintext body of the missed-call system message.
-const callMissedText = "Пропущенный звонок"
+const callMissedText = i18n.MissedCall
 
 // Multipart form parse limits.
 const (

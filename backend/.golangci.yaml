@@ -1,0 +1,342 @@
+version: "2"
+run:
+  tests: true
+output:
+  formats:
+    text:
+      path: stdout
+      print-linter-name: true
+      print-issued-lines: true
+linters:
+  enable:
+    - bidichk
+    - bodyclose
+    - contextcheck
+    - dupl
+    - durationcheck
+    - errname
+    - errorlint
+    - funlen
+    - gocognit
+    - goconst
+    - gocritic
+    - gocyclo
+    - gosec
+    - makezero
+    - misspell
+    - nakedret
+    - nestif
+    - nilerr
+    - nilnil
+    - nosprintfhostport
+    - predeclared
+    - revive
+    - staticcheck
+    - unconvert
+    - wastedassign
+  disable:
+    - cyclop
+    - exhaustive
+    - exhaustruct
+    - forbidigo
+    - forcetypeassert
+    - godot
+    - interfacebloat
+    - ireturn
+    - lll
+    - maintidx
+    - mirror
+    - musttag
+    - nlreturn
+    - noctx
+    - nonamedreturns
+    - paralleltest
+    - prealloc
+    - tagliatelle
+    - testpackage
+    - thelper
+    - unparam
+    - usestdlibvars
+    - varnamelen
+    - wrapcheck
+    - wsl
+  settings:
+    dupl:
+      threshold: 90
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+      exclude-functions:
+        - (io.Closer).Close
+        - (*database/sql.Rows).Close
+        - (*go.uber.org/zap.Logger).Sync
+    errorlint:
+      errorf: true
+      errorf-multi: true
+      asserts: true
+      comparison: true
+    funlen:
+      lines: 120
+      statements: 70
+      ignore-comments: true
+    gocognit:
+      min-complexity: 20
+    goconst:
+      min-len: 3
+      # v2's goconst also counts map-literal keys and struct-tag-like strings
+      # ("chat_id", "user_id", "image/png", ...). Those are wire-format names,
+      # not magic values; a constant per JSON key would hurt readability.
+      min-occurrences: 5
+      ignore-string-values:
+        - ^[a-z_]{1,24}$
+        - ^image/
+    gocritic:
+      disabled-checks:
+        - hugeParam
+        - rangeValCopy
+        - unnamedResult
+        - whyNoLint
+        - ifElseChain
+        - singleCaseSwitch
+        - commentFormatting
+        - unnecessaryBlock
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+      settings:
+        captLocal:
+          paramsOnly: false
+        underef:
+          skipRecvDeref: false
+    gocyclo:
+      min-complexity: 15
+    gosec:
+      excludes:
+        - G404
+        - G601
+        # G118 flags goroutines started with context.Background() while a
+        # request context is in scope. Every such site here is deliberate:
+        # push / FCM fan-out and WS broadcasts must outlive the HTTP request
+        # that triggered them (each is already annotated nolint:contextcheck).
+        - G118
+      severity: medium
+      confidence: medium
+      config:
+        G301: "0750"
+        G302: "0640"
+        G306: "0640"
+    govet:
+      disable:
+        - fieldalignment
+      enable-all: true
+      settings:
+        shadow:
+          strict: true
+    misspell:
+      locale: US
+      ignore-rules:
+        - marshalling
+        - unmarshalling
+    nakedret:
+      max-func-lines: 20
+    nestif:
+      min-complexity: 4
+    revive:
+      confidence: 0.8
+      severity: warning
+      rules:
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+        - name: line-length-limit
+          disabled: true
+        - name: get-return
+          disabled: true
+        - name: unused-parameter
+          disabled: true
+        - name: var-naming
+          arguments:
+            - - ID
+              - URL
+              - API
+              - DB
+              - JWT
+              - WS
+              - HTTP
+              - HTTPS
+              - JSON
+              - XML
+              - HTML
+              - CSS
+              - SQL
+              - UUID
+              - URI
+              - CORS
+              - CSRF
+              - OAuth
+              - UID
+              - GID
+        - name: receiver-naming
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: context-as-argument
+          arguments:
+            - allowTypesBefore: '*testing.T,*github.com/stretchr/testify/suite.Suite'
+        - name: context-keys-type
+        - name: time-naming
+        - name: increment-decrement
+        - name: var-declaration
+        - name: range
+        - name: indent-error-flow
+          arguments:
+            - preserveScope
+        - name: blank-imports
+        - name: defer
+          arguments:
+            - - call-chain
+              - loop
+              - method-call
+              - recover
+              - immediate-recover
+              - return
+        - name: superfluous-else
+        - name: unreachable-code
+        - name: redefines-builtin-id
+        - name: constant-logical-expr
+        - name: bool-literal-in-expr
+        - name: range-val-in-closure
+        - name: range-val-address
+        - name: waitgroup-by-value
+        - name: atomic
+        - name: empty-lines
+        - name: early-return
+        - name: unconditional-recursion
+        - name: identical-branches
+    staticcheck:
+      checks:
+        - all
+        - -ST1000
+        - -ST1003
+        - -ST1016
+        - -ST1020
+        - -ST1021
+        - -ST1022
+      http-status-code-whitelist:
+        - "200"
+        - "400"
+        - "404"
+        - "500"
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - bodyclose
+          - dupl
+          - errcheck
+          - gocognit
+          - goconst
+          - gocyclo
+        path: _test\.go
+      - linters:
+          - revive
+          - staticcheck
+          - unused
+        path: mock_.*\.go
+      - linters:
+          - gocognit
+          - gocyclo
+        path: cmd/.*/main\.go
+      - linters:
+          - gochecknoglobals
+          - gochecknoinits
+        path: internal/models/
+      - linters:
+          - gocognit
+          - gocyclo
+        path: internal/handlers/
+        text: (cyclomatic|cognitive) complexity
+      - linters:
+          - gocognit
+          - gocyclo
+        path: internal/app/app\.go
+      - linters:
+          - funlen
+        text: Function 'SetupRoutes' has too many statements
+      - linters:
+          - gocyclo
+        path: internal/handlers/routes\.go
+      - linters:
+          - gocognit
+          - gocyclo
+        path: internal/handlers/websocket.*\.go
+      - linters:
+          - gocognit
+        text: cognitive complexity .* of func `.*cleanupInactiveUsers`
+      - linters:
+          - govet
+        text: 'shadow: declaration of "err" shadows'
+      - linters:
+          - errcheck
+        text: Error return value of .*(Close|Sync|Flush). is not checked
+      - linters:
+          - staticcheck
+        text: 'ST1003: should not use underscores in Go names'
+      - linters:
+          - goconst
+        path: (.+)_test\.go
+      # firebase-admin v4.19 deprecated messaging.Message.Token (→ Fid) and
+      # option.WithCredentialsFile; moving the FCM path to the new API needs a
+      # real device to verify, tracked as a follow-up rather than silenced
+      # inline all over the file.
+      - linters:
+          - staticcheck
+        path: internal/services/fcm_service\.go
+        text: SA1019
+    paths:
+      - .*\.pb\.go$
+      - .*\.gen\.go$
+      - .*_mock\.go$
+      - vendor
+      - third_party
+      - docs
+      - .git
+      - .github
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  uniq-by-line: true
+severity:
+  default: warning
+  rules:
+    - linters:
+        - errcheck
+        - gosec
+        - govet
+        - nilerr
+        - nilnil
+        - staticcheck
+      severity: error
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - .*\.pb\.go$
+      - .*\.gen\.go$
+      - .*_mock\.go$
+      - vendor
+      - third_party
+      - docs
+      - .git
+      - .github
+      - third_party$
+      - builtin$
+      - examples$

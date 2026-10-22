@@ -32,7 +32,7 @@ func ReadEnvOrFile(name string) (string, error) {
 	}
 	// G304: path is read from an env var set by the operator at deploy time, not from
 	// untrusted input. Suppressing both gosec rule and the golangci wrapper to be safe.
-	data, err := os.ReadFile(path) // #nosec G304 -- operator-controlled config path
+	data, err := os.ReadFile(path) // #nosec G304 G703 -- operator-controlled config path
 	if err != nil {
 		return "", fmt.Errorf("read %s_FILE: %w", name, err)
 	}

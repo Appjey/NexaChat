@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android 12+ (API 31) backup policy. android:allowBackup="false" already opts
+    the app out of cloud backup, but on Android 12+ device-to-device migration
+    does NOT honour allowBackup — it consults these rules instead. Everything is
+    excluded, on purpose: the WebView's localStorage (app_webview/, under the
+    root domain) holds the JWT, the E2E account_key, the decrypted message cache
+    and the chat list; the CapacitorStorage SharedPreferences file mirrors the
+    token, the account_key, the key pins and the app-lock state; the cache dir
+    may hold a downloaded APK. None of that may leave the device: a restored
+    copy on another phone is a full session plus the keys to read every message.
+
+    Rules are domain-wide rather than per-file so a new storage key cannot
+    silently become transferable. The app recreates its state from a login.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

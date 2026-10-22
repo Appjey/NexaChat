@@ -1,8 +1,10 @@
 import { useState } from 'react'
 
 import { endpoints } from '../../shared/api/endpoints'
+import { isApiStatus, userMessage } from '../../shared/api/errors'
 import { httpPost, setAuthToken } from '../../shared/api/httpClient'
 import type { AuthLoginResponse } from '../../shared/api/types'
+import { isWebBrowser } from '../../shared/platform'
 import { useAccountKey } from './AccountKey'
 import { useAuthContext } from './AuthContext'
 import { bootstrapVaultOnLogin } from './vaultBootstrap'
@@ -51,10 +53,10 @@ export function LazyVaultModal() {
       // Refresh profile so the rest of the app sees the now-populated public_key.
       await refreshProfile()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
+      const msg = userMessage(err, err instanceof Error ? err.message : String(err))
       // The login endpoint returns 401 for wrong password — surface that
       // specifically so the user doesn't think the whole system is broken.
-      if (msg.toLowerCase().includes('401') || msg.toLowerCase().includes('unauthorized')) {
+      if (isApiStatus(err, 401)) {
         setError('Неверный пароль.')
       } else {
         setError(msg)
@@ -97,7 +99,10 @@ export function LazyVaultModal() {
         </h3>
         <p style={{ margin: '0 0 16px', fontSize: 14, lineHeight: 1.5, color: '#bbb' }}>
           Для безопасной переписки нужно активировать сквозное шифрование на этом
-          устройстве. Введите ваш пароль ещё раз — это нужно сделать только один раз.
+          устройстве. Введите ваш пароль ещё раз —{' '}
+          {isWebBrowser()
+            ? 'в браузере ключ хранится только до закрытия окна, в приложении его просить не будут.'
+            : 'это нужно сделать только один раз.'}
         </p>
         <input
           type="password"

@@ -5,8 +5,10 @@ import { useAccountKey } from '../features/auth/AccountKey'
 import { useAuthContext } from '../features/auth/AuthContext'
 import { bootstrapVaultOnLogin } from '../features/auth/vaultBootstrap'
 import { endpoints } from '../shared/api/endpoints'
+import { userMessage } from '../shared/api/errors'
 import { httpPost, setAuthToken } from '../shared/api/httpClient'
 import type { AuthLoginResponse } from '../shared/api/types'
+import { log } from '../shared/log'
 
 export default function LoginPage() {
   const [username, setUsername] = useState('')
@@ -33,18 +35,18 @@ export default function LoginPage() {
       // Establish the E2E account_key from the password the user just typed. This is
       // the only moment in the session we have access to the password, so it has to
       // happen here (not later in useAuth's refreshProfile path which has no password).
-      // Failures here don't block login — the user keeps using legacy scheme=1.
+      // Failures here don't block login — LazyVaultModal asks for the password again.
       try {
         const key = await bootstrapVaultOnLogin(password, res)
         if (key) accountKeyCtx.setKey(key)
       } catch (e2eErr) {
-        console.error('E2E vault bootstrap failed; falling back to scheme=1:', e2eErr)
+        log.error('E2E vault bootstrap failed; the lazy vault modal will retry:', e2eErr)
       }
 
       await refreshProfile()
       navigate('/')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка входа')
+      setError(userMessage(err, 'Ошибка входа'))
     } finally {
       setSubmitting(false)
     }

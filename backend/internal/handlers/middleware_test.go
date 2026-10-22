@@ -18,6 +18,14 @@ import (
 
 var testSecret = []byte("test-secret-key-for-jwt-middleware-testing")
 
+// testOrigins is the allow-list cookie-authenticated requests are checked against.
+var testOrigins = []string{"https://app.example"}
+
+// sessionCookie builds the request-side session cookie as a browser would send it.
+func sessionCookie(value string) *http.Cookie {
+	return &http.Cookie{Name: authCookieName, Value: value, Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode}
+}
+
 // testSessionID is the session every validClaims token belongs to.
 const testSessionID = 1
 
@@ -68,7 +76,7 @@ func validClaims(userID float64) jwt.MapClaims {
 func setupMiddlewareTest() *gin.Engine {
 	r := gin.New()
 	logger := zap.NewNop()
-	r.Use(jwtMiddleware(testSecret, logger, 0, allowAllSessions{}))
+	r.Use(jwtMiddleware(testSecret, logger, 0, allowAllSessions{}, testOrigins))
 	r.GET("/api/test", func(c *gin.Context) {
 		userID, exists := c.Get("user_id")
 		if !exists {
@@ -100,7 +108,7 @@ func TestJWTMiddleware_MissingSessionClaim(t *testing.T) {
 
 func TestJWTMiddleware_RevokedSession(t *testing.T) {
 	r := gin.New()
-	r.Use(jwtMiddleware(testSecret, zap.NewNop(), 0, revokedSessions{}))
+	r.Use(jwtMiddleware(testSecret, zap.NewNop(), 0, revokedSessions{}, testOrigins))
 	r.GET("/api/test", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
 
 	token := createTestToken(t, validClaims(42), testSecret)
@@ -254,7 +262,7 @@ func TestJWTMiddleware_MissingUserIDClaim(t *testing.T) {
 func TestJWTMiddleware_PublicPathSkipped(t *testing.T) {
 	r := gin.New()
 	logger := zap.NewNop()
-	r.Use(jwtMiddleware(testSecret, logger, 0, allowAllSessions{}))
+	r.Use(jwtMiddleware(testSecret, logger, 0, allowAllSessions{}, testOrigins))
 
 	// Register all public paths and prefixes. Logout is deliberately absent:
 	// it needs the token to know which session to revoke.
@@ -330,7 +338,7 @@ func TestJWTMiddleware_MalformedAuthorizationHeader(t *testing.T) {
 func TestJWTMiddleware_SlidingRefresh(t *testing.T) {
 	r := gin.New()
 	logger := zap.NewNop()
-	r.Use(jwtMiddleware(testSecret, logger, time.Hour*24*365, allowAllSessions{}))
+	r.Use(jwtMiddleware(testSecret, logger, time.Hour*24*365, allowAllSessions{}, testOrigins))
 	r.GET("/api/test", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
@@ -386,7 +394,7 @@ func TestJWTMiddleware_SlidingRefresh(t *testing.T) {
 
 	t.Run("refresh skipped when ttl is zero", func(t *testing.T) {
 		rNoRefresh := gin.New()
-		rNoRefresh.Use(jwtMiddleware(testSecret, logger, 0, allowAllSessions{}))
+		rNoRefresh.Use(jwtMiddleware(testSecret, logger, 0, allowAllSessions{}, testOrigins))
 		rNoRefresh.GET("/api/test", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"ok": true})
 		})
@@ -410,7 +418,7 @@ func TestJWTMiddleware_SlidingRefresh(t *testing.T) {
 func TestJWTMiddleware_WebSocketQueryToken(t *testing.T) {
 	r := gin.New()
 	logger := zap.NewNop()
-	r.Use(jwtMiddleware(testSecret, logger, 0, allowAllSessions{}))
+	r.Use(jwtMiddleware(testSecret, logger, 0, allowAllSessions{}, testOrigins))
 	r.GET("/ws", func(c *gin.Context) {
 		userID, exists := c.Get("user_id")
 		if !exists {
@@ -441,4 +449,101 @@ func TestJWTMiddleware_WebSocketQueryToken(t *testing.T) {
 			t.Errorf("status = %d, want %d", w.Code, http.StatusUnauthorized)
 		}
 	})
+}
+
+func TestJWTMiddleware_CookieAuth(t *testing.T) {
+	r := setupMiddlewareTest()
+	token := createTestToken(t, validClaims(42), testSecret)
+
+	t.Run("cookie alone authenticates", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/test", http.NoBody)
+		req.AddCookie(sessionCookie(token))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
+		}
+	})
+
+	t.Run("cookie with allowed Origin passes", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/test", http.NoBody)
+		req.AddCookie(sessionCookie(token))
+		req.Header.Set("Origin", "https://App.Example")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+		}
+	})
+
+	t.Run("cookie with foreign Origin is rejected (CSRF)", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/test", http.NoBody)
+		req.AddCookie(sessionCookie(token))
+		req.Header.Set("Origin", "https://evil.example")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("bearer header wins over cookie and skips the origin check", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/test", http.NoBody)
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.AddCookie(sessionCookie("garbage"))
+		req.Header.Set("Origin", "https://evil.example")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+		}
+	})
+
+	t.Run("websocket handshake accepts the cookie", func(t *testing.T) {
+		ws := gin.New()
+		ws.Use(jwtMiddleware(testSecret, zap.NewNop(), 0, allowAllSessions{}, testOrigins))
+		ws.GET("/ws", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+		req := httptest.NewRequest(http.MethodGet, "/ws", http.NoBody)
+		req.AddCookie(sessionCookie(token))
+		w := httptest.NewRecorder()
+		ws.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+		}
+	})
+}
+
+func TestJWTMiddleware_CookieRefreshSetsCookie(t *testing.T) {
+	r := gin.New()
+	r.Use(jwtMiddleware(testSecret, zap.NewNop(), time.Hour*24*365, allowAllSessions{}, testOrigins))
+	r.GET("/api/test", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+
+	claims := validClaims(42)
+	claims["iat"] = time.Now().Add(-48 * time.Hour).Unix()
+	claims["exp"] = time.Now().Add(time.Hour).Unix()
+	token := createTestToken(t, claims, testSecret)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/test", http.NoBody)
+	req.AddCookie(sessionCookie(token))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if got := w.Header().Get("X-Refresh-Token"); got != "" {
+		t.Fatalf("cookie clients must not get the token in a header, got %q", got)
+	}
+	var fresh *http.Cookie
+	for _, ck := range w.Result().Cookies() {
+		if ck.Name == authCookieName {
+			fresh = ck
+		}
+	}
+	if fresh == nil || fresh.Value == "" || fresh.Value == token {
+		t.Fatalf("expected a rotated session cookie, got %+v", fresh)
+	}
+	if !fresh.HttpOnly || fresh.SameSite != http.SameSiteStrictMode || fresh.Path != "/" {
+		t.Fatalf("cookie attributes wrong: %+v", fresh)
+	}
 }

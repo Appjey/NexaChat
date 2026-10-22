@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 
+import { log } from '../../shared/log'
+
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
@@ -51,7 +53,7 @@ export function useWebRTC() {
         const audio = new Audio()
         audio.srcObject = stream
         audio.volume = 1.0
-        audio.play().catch(console.error)
+        audio.play().catch(log.error)
         remoteAudioRef.current = audio
       }
     }

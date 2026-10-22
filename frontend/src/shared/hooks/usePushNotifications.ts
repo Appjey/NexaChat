@@ -1,6 +1,7 @@
 import { useCallback,useEffect, useState } from 'react'
 
 import { getPushStatus,getVAPIDKey, registerFCMToken, subscribePush, unregisterFCMToken, unsubscribePush } from '../api/pushApi'
+import { log } from '../log'
 import { getPlatform, isNative } from '../platform'
 
 const STORED_FCM_TOKEN_KEY = 'fcm_token'
@@ -36,7 +37,7 @@ export function usePushNotifications() {
           setPermission(perm)
           setIsSubscribed(perm === 'granted' && Boolean(localStorage.getItem(STORED_FCM_TOKEN_KEY)))
         } catch (err) {
-          console.error('Failed to check FCM permissions:', err)
+          log.error('Failed to check FCM permissions:', err)
         } finally {
           if (!cancelled) setIsLoading(false)
         }
@@ -108,7 +109,7 @@ export function usePushNotifications() {
             await registerFCMToken(token, getPlatform() as 'android' | 'ios')
             localStorage.setItem(STORED_FCM_TOKEN_KEY, token)
           } catch (err) {
-            console.error('Failed to register FCM token with backend:', err)
+            log.error('Failed to register FCM token with backend:', err)
           }
         }
 
@@ -134,7 +135,7 @@ export function usePushNotifications() {
       setIsSubscribed(true)
       return true
     } catch (error) {
-      console.error('Failed to subscribe to push notifications:', error)
+      log.error('Failed to subscribe to push notifications:', error)
       return false
     } finally {
       setIsLoading(false)
@@ -149,7 +150,7 @@ export function usePushNotifications() {
         const token = localStorage.getItem(STORED_FCM_TOKEN_KEY)
         if (token) {
           try { await unregisterFCMToken(token) } catch (err) {
-            console.warn('FCM backend unregister failed:', err)
+            log.warn('FCM backend unregister failed:', err)
           }
           localStorage.removeItem(STORED_FCM_TOKEN_KEY)
         }
@@ -169,7 +170,7 @@ export function usePushNotifications() {
       setIsSubscribed(false)
       return true
     } catch (error) {
-      console.error('Failed to unsubscribe from push notifications:', error)
+      log.error('Failed to unsubscribe from push notifications:', error)
       return false
     } finally {
       setIsLoading(false)

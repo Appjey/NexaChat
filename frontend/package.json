@@ -1,7 +1,7 @@
 {
   "name": "messenger-web",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.5.5",
   "type": "module",
   "license": "AGPL-3.0-or-later",
   "scripts": {
@@ -40,7 +40,6 @@
   },
   "devDependencies": {
     "@capacitor/android": "^8.3.1",
-    "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.3.1",
     "@capacitor/core": "^8.3.1",
     "@eslint/js": "^9.39.1",

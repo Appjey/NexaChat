@@ -9,6 +9,7 @@ import { useToast } from '../../shared/components/ToastContext'
 import { decryptFile, decryptMetadata, unwrapFileKey } from '../../shared/crypto/e2e'
 import { getChatKey } from '../../shared/crypto/peerKeys'
 import { downloadAttachmentNative } from '../../shared/downloadAttachment'
+import { log } from '../../shared/log'
 import { isNative } from '../../shared/platform'
 import { formatFileSize, formatMessageTime, linkify } from '../../shared/utils'
 import { useAccountKey } from '../auth/AccountKey'
@@ -171,7 +172,7 @@ function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps
         setDecryptedBlob(decrypted)
       } catch (err) {
         if (!cancelled) {
-          console.warn('attachment decrypt failed:', err)
+          log.warn('attachment decrypt failed:', err)
           setError(err instanceof Error ? err.message : String(err))
         }
       }
@@ -242,7 +243,7 @@ function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps
           showToast(`Сохранено: ${res.humanPath}`, 'success')
         } else if (!res.ok) {
           showToast('Не удалось скачать файл', 'error')
-          console.warn('native download failed:', res.error)
+          log.warn('native download failed:', res.error)
         }
         // savedTo === 'shared' → system share sheet already gave feedback.
       })

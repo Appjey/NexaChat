@@ -1,5 +1,5 @@
 # ===================== Build Stage =====================
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -14,6 +14,12 @@ RUN npm ci --no-audit --no-fund --ignore-scripts && npm cache clean --force
 
 # Copy source code
 COPY . .
+
+# Origin of presigned attachment URLs, baked into the Content-Security-Policy
+# meta tag by vite.config.ts. Default = production MinIO; docker-compose.yml
+# overrides it for the local stack.
+ARG VITE_FILES_ORIGIN=https://minio.nothingapp.ru
+ENV VITE_FILES_ORIGIN=$VITE_FILES_ORIGIN
 
 # Build the application
 RUN npm run build

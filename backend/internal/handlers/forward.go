@@ -3,6 +3,7 @@ package handlers
 import (
 	"messenger/internal/models"
 	"messenger/internal/services"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -50,7 +51,7 @@ func (h *webSocketHandler) ForwardMessageAPI(c *gin.Context) {
 		return
 	}
 	if req.Scheme != models.SchemeClientSide {
-		sendBadRequest(c, "обновите приложение")
+		sendError(c, http.StatusBadRequest, codeClientUpdateRequired, "Client update required: server-side encryption is no longer supported")
 		return
 	}
 

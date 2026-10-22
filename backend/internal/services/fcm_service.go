@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"messenger/internal/i18n"
 	"messenger/internal/models"
 	"messenger/internal/repositories"
 
@@ -255,7 +256,7 @@ func (s *FCMService) sendCallToToken(ctx context.Context, t models.FCMToken, cal
 	msg := &messaging.Message{
 		Token: t.Token,
 		Notification: &messaging.Notification{
-			Title: "Входящий звонок",
+			Title: i18n.IncomingCallTitle,
 			Body:  callerName,
 		},
 		Data: map[string]string{

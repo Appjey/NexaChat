@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { WSEvent, WSMessageAction } from '../../shared/api/types'
+import { log } from '../../shared/log'
 import { type PendingCall, subscribePendingCall } from '../../shared/pendingCall'
 import type { CallState } from './CallContext'
 import { CallContext } from './CallContext'
@@ -318,7 +319,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       case 'call_ice': {
         if (!state.callId || state.callId !== event.call_id) return
-        webrtc.handleRemoteIceCandidate(event.candidate).catch(console.error)
+        webrtc.handleRemoteIceCandidate(event.candidate).catch(log.error)
         break
       }
 

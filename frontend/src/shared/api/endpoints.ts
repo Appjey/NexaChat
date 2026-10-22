@@ -68,4 +68,5 @@ export const endpoints = {
   updates: {
     latest: '/api/updates/latest',
   },
+  clientErrors: '/api/client-errors',
 }

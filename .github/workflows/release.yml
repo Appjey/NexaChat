@@ -121,6 +121,9 @@ jobs:
         working-directory: frontend
         run: |
           npm ci --no-audit --no-fund --ignore-scripts
+          # Same rule as versionName above and the desktop job below: the
+          # committed version is a baseline, the tag is the source of truth.
+          npm version "${{ steps.ver.outputs.name }}" --no-git-tag-version --allow-same-version
           npm run sync:android
 
       - name: Build signed APK

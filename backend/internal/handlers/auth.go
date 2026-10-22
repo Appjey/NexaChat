@@ -5,7 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -23,10 +26,16 @@ type authHandler struct {
 	userService *services.UserService
 	chatService *services.ChatService
 	sessions    *services.SessionService
+	limiter     *services.LoginLimiter
 	logger      *zap.Logger
 	secret      []byte
 	tokenTTL    time.Duration
 }
+
+// minPasswordLength applies to registration and password change. Existing
+// shorter passwords keep working for login; they are only rejected when the
+// user next changes their password.
+const minPasswordLength = 8
 
 // authHandlerDeps bundles the collaborators of authHandler so the constructor
 // doesn't grow a positional parameter per service.
@@ -35,6 +44,7 @@ type authHandlerDeps struct {
 	Users    *services.UserService
 	Chats    *services.ChatService
 	Sessions *services.SessionService
+	Limiter  *services.LoginLimiter
 	Logger   *zap.Logger
 	Secret   []byte
 	TokenTTL time.Duration
@@ -47,6 +57,7 @@ func newAuthHandler(d authHandlerDeps) *authHandler {
 		userService: d.Users,
 		chatService: d.Chats,
 		sessions:    d.Sessions,
+		limiter:     d.Limiter,
 		logger:      d.Logger,
 		secret:      d.Secret,
 		tokenTTL:    d.TokenTTL,
@@ -55,8 +66,8 @@ func newAuthHandler(d authHandlerDeps) *authHandler {
 
 // validatePasswordStrength checks if password meets security requirements
 func validatePasswordStrength(password string) error {
-	if len(password) < 6 {
-		return errors.New("password must be at least 6 characters")
+	if len(password) < minPasswordLength {
+		return fmt.Errorf("password must be at least %d characters", minPasswordLength)
 	}
 	if strings.TrimSpace(password) == "" {
 		return errors.New("password cannot be only whitespace")
@@ -111,35 +122,35 @@ func issueJWT(secret []byte, userID, sessionID uint, ttl time.Duration) (string,
 func (h *authHandler) RegisterAPI(c *gin.Context) {
 	var req struct {
 		Username string `json:"username" binding:"required,min=3,max=20"`
-		Password string `json:"password" binding:"required,min=6"`
+		Password string `json:"password" binding:"required,min=8"`
 		Name     string `json:"name" binding:"required,min=2,max=50"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		// Parse validation errors
-		errMsg := "Invalid input data"
+		code, errMsg := codeValidation, "Invalid input data"
 		errStr := err.Error()
 		if strings.Contains(errStr, "Username") {
-			errMsg = "Username must be 3-20 characters"
+			code, errMsg = codeUsernameInvalid, "Username must be 3-20 characters"
 		} else if strings.Contains(errStr, "Password") {
-			errMsg = "Password must be at least 6 characters"
+			code, errMsg = codeWeakPassword, fmt.Sprintf("Password must be at least %d characters", minPasswordLength)
 		} else if strings.Contains(errStr, "Name") {
-			errMsg = "Name must be 2-50 characters"
+			code, errMsg = codeNameInvalid, "Name must be 2-50 characters"
 		}
-		sendBadRequest(c, errMsg)
+		sendError(c, http.StatusBadRequest, code, errMsg)
 		return
 	}
 
 	// Validate password strength
 	if err := validatePasswordStrength(req.Password); err != nil {
-		sendBadRequest(c, err.Error())
+		sendError(c, http.StatusBadRequest, codeWeakPassword, err.Error())
 		return
 	}
 
 	// Validate username format
 	usernameRegex := regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
 	if !usernameRegex.MatchString(req.Username) {
-		sendBadRequest(c, "Username can only contain letters, numbers and underscore")
+		sendError(c, http.StatusBadRequest, codeUsernameInvalid, "Username can only contain letters, numbers and underscore")
 		return
 	}
 
@@ -147,7 +158,7 @@ func (h *authHandler) RegisterAPI(c *gin.Context) {
 
 	// Validate trimmed name length and content
 	if len(req.Name) < 2 {
-		sendBadRequest(c, "Name must be at least 2 characters (excluding spaces)")
+		sendError(c, http.StatusBadRequest, codeNameInvalid, "Name must be at least 2 characters (excluding spaces)")
 		return
 	}
 	hasAlphanumeric := false
@@ -158,14 +169,14 @@ func (h *authHandler) RegisterAPI(c *gin.Context) {
 		}
 	}
 	if !hasAlphanumeric {
-		sendBadRequest(c, "Name must contain at least one letter or digit")
+		sendError(c, http.StatusBadRequest, codeNameInvalid, "Name must contain at least one letter or digit")
 		return
 	}
 
 	err := h.authService.Register(c.Request.Context(), req.Username, req.Password, req.Name)
 	if err != nil {
 		if strings.Contains(err.Error(), "username") {
-			sendBadRequest(c, "Username already taken")
+			sendError(c, http.StatusBadRequest, codeUsernameTaken, "Username already taken")
 		} else {
 			sendBadRequest(c, "Registration failed")
 		}
@@ -193,6 +204,7 @@ func (h *authHandler) RegisterAPI(c *gin.Context) {
 		sendInternalError(c, "Failed to generate token")
 		return
 	}
+	setAuthCookie(c, tokenString, h.tokenTTL)
 
 	sendCreated(c, gin.H{
 		"user_id":               user.ID,
@@ -217,17 +229,39 @@ func (h *authHandler) LoginAPI(c *gin.Context) {
 		return
 	}
 
-	user, err := h.authService.Login(c.Request.Context(), req.Username, req.Password)
-	if err != nil {
-		sendUnauthorized(c)
+	// Brute-force throttle: failed attempts are counted per username and per
+	// client IP (trusted-proxy aware, see config.TrustedProxies). The check
+	// runs before bcrypt so a locked-out attacker doesn't burn CPU either.
+	ip := c.ClientIP()
+	if retryAfter, ok := h.limiter.Allow(req.Username, ip); !ok {
+		c.Header("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
+		c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+			"error": "Too many login attempts, try again later",
+			"code":  codeTooManyAttempts,
+		})
 		return
 	}
+
+	user, err := h.authService.Login(c.Request.Context(), req.Username, req.Password)
+	if err != nil {
+		if h.limiter.RecordFailure(req.Username, ip) {
+			h.logger.Warn("login lockout triggered",
+				zap.String("username", strings.ToLower(strings.TrimSpace(req.Username))),
+				zap.String("ip", ip))
+		}
+		sendError(c, http.StatusUnauthorized, codeInvalidCredentials, "Invalid username or password")
+		return
+	}
+	h.limiter.RecordSuccess(req.Username)
 
 	tokenString, err := h.openSession(c.Request.Context(), user.ID)
 	if err != nil {
 		sendInternalError(c, "Failed to generate token")
 		return
 	}
+	// Browser clients authenticate with this cookie from here on and never
+	// touch the token in JS; native clients ignore it and use the JSON token.
+	setAuthCookie(c, tokenString, h.tokenTTL)
 
 	sendSuccess(c, gin.H{
 		"user_id":               user.ID,
@@ -249,7 +283,7 @@ func (h *authHandler) ChangePasswordAPI(c *gin.Context) {
 
 	var req struct {
 		OldPassword string `json:"old_password" binding:"required"`
-		NewPassword string `json:"new_password" binding:"required,min=6"`
+		NewPassword string `json:"new_password" binding:"required,min=8"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -258,14 +292,14 @@ func (h *authHandler) ChangePasswordAPI(c *gin.Context) {
 	}
 
 	if err := validatePasswordStrength(req.NewPassword); err != nil {
-		sendBadRequest(c, err.Error())
+		sendError(c, http.StatusBadRequest, codeWeakPassword, err.Error())
 		return
 	}
 
 	err := h.authService.ChangePassword(c.Request.Context(), userID, req.OldPassword, req.NewPassword)
 	if err != nil {
 		if errors.Is(err, services.ErrInvalidPassword) {
-			sendBadRequest(c, "Неверный текущий пароль")
+			sendError(c, http.StatusBadRequest, codeWrongCurrentPassword, "Current password is incorrect")
 			return
 		}
 		sendInternalError(c, "Failed to change password")
@@ -290,6 +324,9 @@ func (h *authHandler) ChangePasswordAPI(c *gin.Context) {
 // already-revoked session still answers 200 so clients can always finish their
 // local cleanup.
 func (h *authHandler) LogoutAPI(c *gin.Context) {
+	// Expire the browser cookie regardless of how the request was
+	// authenticated or whether the revoke below succeeds.
+	clearAuthCookie(c)
 	userID, ok := requireUserID(c)
 	if !ok {
 		return
@@ -324,7 +361,7 @@ func (h *authHandler) GetCurrentUser(c *gin.Context) {
 	// Vault material is included whenever it has been provisioned. Clients use it on
 	// app start to derive the vault key, unwrap the account key, and re-derive the
 	// X25519 keypair. Absence (all three fields null) means the user hasn't opted
-	// into E2E yet — their messages will stay scheme=1.
+	// into E2E yet — the client prompts for the password until they do.
 	sendSuccess(c, gin.H{
 		"id":                    user.ID,
 		"username":              user.Username,

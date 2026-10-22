@@ -12,8 +12,11 @@ import {
 import { resolveApiUrl } from '../../shared/api/httpClient'
 import type { GroupMember } from '../../shared/api/types'
 import { BanIcon, CameraIcon, CloseIcon, GroupIcon, LogOutIcon, PersonAddIcon, ShieldIcon, TrashIcon } from '../../shared/components/Icons'
+import { getPin } from '../../shared/crypto/keyPins'
+import { hasKeyChange } from '../../shared/crypto/peerKeys'
 import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
+import { log } from '../../shared/log'
 import { AddMembersModal } from './AddMembersModal'
 
 type Props = {
@@ -100,7 +103,7 @@ export function GroupInfoPanel({
       await updateGroupInfo(chatId, name)
       setEditingName(false)
       onGroupUpdated()
-    } catch (err) { console.error('Failed to update group name:', err) }
+    } catch (err) { log.error('Failed to update group name:', err) }
   }
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -109,14 +112,14 @@ export function GroupInfoPanel({
     try {
       await uploadGroupAvatar(chatId, file)
       onGroupUpdated()
-    } catch (err) { console.error('Failed to upload avatar:', err) }
+    } catch (err) { log.error('Failed to upload avatar:', err) }
   }
 
   const handleDeleteAvatar = async () => {
     try {
       await deleteGroupAvatar(chatId)
       onGroupUpdated()
-    } catch (err) { console.error('Failed to delete avatar:', err) }
+    } catch (err) { log.error('Failed to delete avatar:', err) }
   }
 
   const handleRemoveMember = async (userId: number) => {
@@ -124,7 +127,7 @@ export function GroupInfoPanel({
     try {
       await removeGroupMember(chatId, userId)
       onGroupUpdated()
-    } catch (err) { console.error('Failed to remove member:', err) }
+    } catch (err) { log.error('Failed to remove member:', err) }
   }
 
   const handleToggleAdmin = async (userId: number, currentRole: string) => {
@@ -133,21 +136,21 @@ export function GroupInfoPanel({
     try {
       await changeGroupRole(chatId, userId, newRole)
       onGroupUpdated()
-    } catch (err) { console.error('Failed to change role:', err) }
+    } catch (err) { log.error('Failed to change role:', err) }
   }
 
   const handleLeave = async () => {
     try {
       await leaveGroup(chatId)
       onGroupLeft()
-    } catch (err) { console.error('Failed to leave group:', err) }
+    } catch (err) { log.error('Failed to leave group:', err) }
   }
 
   const handleDelete = async () => {
     try {
       await deleteGroup(chatId)
       onGroupDeleted()
-    } catch (err) { console.error('Failed to delete group:', err) }
+    } catch (err) { log.error('Failed to delete group:', err) }
   }
 
   const handleMemberContextMenu = (e: React.MouseEvent, memberId: number) => {
@@ -268,6 +271,12 @@ export function GroupInfoPanel({
                   </span>
                   <span className={`gip-member__status ${member.is_online ? 'gip-member__status--online' : ''}`}>
                     {member.is_online ? 'в сети' : 'не в сети'}
+                    {member.user_id !== currentUserId && hasKeyChange(member.user_id) && (
+                      <span className="gip-member__key gip-member__key--changed" title="Ключ шифрования изменился">⚠ ключ изменился</span>
+                    )}
+                    {member.user_id !== currentUserId && !hasKeyChange(member.user_id) && getPin(member.user_id)?.verified && (
+                      <span className="gip-member__key gip-member__key--verified" title="Код безопасности сверен">✓ проверен</span>
+                    )}
                   </span>
                 </div>
                 {roleLabel && (

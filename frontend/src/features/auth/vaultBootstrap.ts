@@ -8,6 +8,7 @@ import {
   setupNewVault,
   type VaultMaterial,
 } from '../../shared/crypto/e2e'
+import { log } from '../../shared/log'
 
 type ServerVaultFields = {
   vault_salt?: string | null
@@ -30,9 +31,8 @@ type ServerVaultFields = {
  * returning so the AccountKeyProvider can read it back on a future cold start
  * without needing the password again.
  *
- * Returns null if WebCrypto isn't usable (very old runtimes); caller should fall
- * back to legacy scheme=1 messages — nothing breaks, the server still handles
- * them.
+ * Returns null if WebCrypto isn't usable (very old runtimes). E2E is mandatory,
+ * so the composer then stays disabled and E2E messages render as placeholders.
  *
  * Throws if the password is wrong (existing vault that won't unwrap) or if the
  * server-side PUT fails on a fresh setup. Callers swallow + show a generic
@@ -61,8 +61,8 @@ export async function bootstrapVaultOnLogin(
     // Phase B-only users have vault material but no public_key on the server yet.
     // Backfill it in the background — derives deterministically from the same
     // account_key, so once it's uploaded other users can ECDH against it. Failure
-    // here is non-fatal: peer-to-peer encryption with this user just stays
-    // scheme=1 until the next login fixes the row.
+    // here is non-fatal: other users cannot encrypt to this user until the
+    // next login fixes the row.
     if (!serverFields.public_key) {
       try {
         const pub = await publicKeyBase64(accountKey)
@@ -72,7 +72,7 @@ export async function bootstrapVaultOnLogin(
           publicKey: pub,
         })
       } catch (err) {
-        console.warn('Phase C public_key backfill failed:', err)
+        log.warn('Phase C public_key backfill failed:', err)
       }
     }
   } else {
@@ -88,8 +88,9 @@ export async function bootstrapVaultOnLogin(
     accountKey = fresh
   }
 
-  await saveAccountKey(accountKey)
-  return accountKey
+  // On the web this returns the non-extractable X25519 identity that was just
+  // persisted; everywhere else it is the account_key itself.
+  return saveAccountKey(accountKey)
 }
 
 /**

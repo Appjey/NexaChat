@@ -5,8 +5,12 @@ import { httpPost, httpPut, resolveApiUrl } from '../../shared/api/httpClient'
 import type { AvatarUploadResponse } from '../../shared/api/types'
 import { CloseIcon } from '../../shared/components/Icons'
 import { useToast } from '../../shared/components/ToastContext'
+import { publicKeyBase64 } from '../../shared/crypto/e2e'
+import { keyFingerprint } from '../../shared/crypto/keyPins'
 import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
+import { log } from '../../shared/log'
+import { useAccountKey } from '../auth/AccountKey'
 import { useAuthContext } from '../auth/AuthContext'
 
 type Props = {
@@ -23,12 +27,29 @@ export function ProfileModal({ isOpen, onClose }: Props) {
   const { showToast } = useToast()
   const { handleBackdropClick } = useModalBehavior({ isOpen, onClose })
   useAndroidBack(() => { onClose(); return true }, isOpen)
+  const accountKeyCtx = useAccountKey()
+  const [fingerprint, setFingerprint] = useState<string | null>(null)
 
   useEffect(() => {
     if (user) {
       setName(user.name || '')
     }
   }, [user])
+
+  // Own E2E key fingerprint — what a peer sees as "their" side when the two
+  // of you compare keys; read it out loud or show the screen.
+  useEffect(() => {
+    if (!isOpen || accountKeyCtx.state.status !== 'ready') {
+      setFingerprint(null)
+      return
+    }
+    let cancelled = false
+    publicKeyBase64(accountKeyCtx.state.key)
+      .then(keyFingerprint)
+      .then((fp) => { if (!cancelled) setFingerprint(fp) })
+      .catch(() => { if (!cancelled) setFingerprint(null) })
+    return () => { cancelled = true }
+  }, [isOpen, accountKeyCtx.state])
 
   useEffect(() => {
     if (!isOpen) {
@@ -52,7 +73,7 @@ export function ProfileModal({ isOpen, onClose }: Props) {
       await refreshProfile()
       showToast('Аватар успешно загружен', 'success')
     } catch (err) {
-      console.error('Failed to upload avatar:', err)
+      log.error('Failed to upload avatar:', err)
       showToast('Не удалось загрузить аватар', 'error')
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -67,7 +88,7 @@ export function ProfileModal({ isOpen, onClose }: Props) {
       await refreshProfile()
       setIsEditing(false)
     } catch (err) {
-      console.error('Failed to update profile:', err)
+      log.error('Failed to update profile:', err)
     } finally {
       setSaving(false)
     }
@@ -135,6 +156,11 @@ export function ProfileModal({ isOpen, onClose }: Props) {
             <h2 className="profile-modal__name">{user?.name || user?.username}</h2>
           )}
           <span className="profile-modal__username">@{user?.username}</span>
+          {fingerprint && (
+            <span className="profile-modal__fingerprint" title="Отпечаток вашего ключа шифрования">
+              🔑 {fingerprint}
+            </span>
+          )}
         </div>
 
         {isEditing && (

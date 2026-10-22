@@ -69,6 +69,9 @@ export function useGlobalWebSocket({ onMessage, enabled = true }: UseGlobalWebSo
       connectionInProgress = true
 
       const wsBaseUrl = import.meta.env.VITE_API_BASE_URL || window.location.origin
+      // Native shells cannot set headers on a WebSocket, so they pass the
+      // token as a query param; browsers send the HttpOnly session cookie
+      // with the handshake and getAuthToken() is null for them.
       const token = getAuthToken()
       const query = token ? `?token=${encodeURIComponent(token)}` : ''
       const wsUrl = `${wsBaseUrl.replace(/^http/, 'ws')}${endpoints.ws.global}${query}`

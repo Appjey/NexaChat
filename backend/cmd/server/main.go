@@ -29,7 +29,7 @@ func runHealthCheck() int {
 	}
 
 	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("http://localhost:%s/health", port))
+	resp, err := client.Get(fmt.Sprintf("http://localhost:%s/health", port)) // #nosec G704 -- loopback probe, port from our own env
 	if err != nil {
 		return 1
 	}

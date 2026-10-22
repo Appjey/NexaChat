@@ -7,6 +7,7 @@ import type { UserListItem } from '../../shared/api/types'
 import { CheckIcon, CloseIcon, SearchIcon } from '../../shared/components/Icons'
 import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
+import { log } from '../../shared/log'
 
 type Props = {
   isOpen: boolean
@@ -31,7 +32,7 @@ export function AddMembersModal({ isOpen, onClose, chatId, existingMemberIds, on
     setLoading(true)
     getContacts()
       .then((data) => { if (!cancelled) setContacts(data) })
-      .catch(console.error)
+      .catch(log.error)
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [isOpen])
@@ -78,7 +79,7 @@ export function AddMembersModal({ isOpen, onClose, chatId, existingMemberIds, on
       onMembersAdded()
       onClose()
     } catch (err) {
-      console.error('Failed to add members:', err)
+      log.error('Failed to add members:', err)
     } finally {
       setAdding(false)
     }

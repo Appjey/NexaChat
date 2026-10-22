@@ -55,14 +55,14 @@ func SetupRoutes(
 	appReleaseService := services.NewAppReleaseService(logger, repositories.NewAppReleaseRepo(db))
 
 	tokenTTL := time.Duration(cfg.JWTExpiryDays) * 24 * time.Hour
-	requireAuth := jwtMiddleware(secret, logger, tokenTTL, sessionService)
+	requireAuth := jwtMiddleware(secret, logger, tokenTTL, sessionService, cfg.AllowedOrigins)
 
 	backfillFavoritesChats(logger, userRepo, chatService)
 
 	// Initialize handlers
 	authH := newAuthHandler(authHandlerDeps{
 		Auth: authService, Users: userService, Chats: chatService, Sessions: sessionService,
-		Logger: logger, Secret: secret, TokenTTL: tokenTTL,
+		Limiter: services.NewLoginLimiter(), Logger: logger, Secret: secret, TokenTTL: tokenTTL,
 	})
 	chatH := newChatHandler(chatService, userService, fileStorage)
 	chatH.SetGroupService(groupService)
@@ -80,6 +80,7 @@ func SetupRoutes(
 	groupH := newGroupHandler(groupService, presenceService, userService)
 	pinH := newPinHandler(pinService, fileStorage)
 	releaseH := newAppReleaseHandler(appReleaseService, cfg.AdminAPIKey, logger)
+	clientErrorH := newClientErrorHandler(logger)
 
 	// Configure presence service to broadcast status changes via WebSocket
 	presenceService.SetOnChangeCallback(wsH.broadcastPresenceChange)
@@ -133,6 +134,7 @@ func SetupRoutes(
 	registerUserRoutes(api, userH, wsH, fileH)
 	registerPushRoutes(api, pushH)
 	registerGroupRoutes(api, groupH)
+	registerClientErrorRoutes(api, clientErrorH)
 
 	return wsH.Close, nil
 }
@@ -201,6 +203,10 @@ func registerUserRoutes(api *gin.RouterGroup, uh *userHandler, wh *webSocketHand
 	presence.GET("/:user_id", wh.GetUserPresenceAPI)
 
 	api.GET("/files/:filename", fh.ServeFile)
+}
+
+func registerClientErrorRoutes(api *gin.RouterGroup, h *clientErrorHandler) {
+	api.POST("/client-errors", h.Report)
 }
 
 func registerPushRoutes(api *gin.RouterGroup, h *pushHandler) {

@@ -1,0 +1,759 @@
+/* ============================================
+   CHAT SEARCH
+   ============================================ */
+.chat-header__search-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+}
+
+.chat-header__search-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.chat-header__search-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.chat-search {
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.chat-search__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+}
+
+.chat-search__header .form-control {
+  flex: 1;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.chat-search__header .form-control:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.chat-search__close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  transition: var(--transition);
+}
+
+.chat-search__close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.chat-search__status {
+  padding: var(--space-sm) var(--space-md);
+  color: var(--text-tertiary);
+  font-size: 0.85rem;
+}
+
+.chat-search__results {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.chat-search__count {
+  padding: var(--space-xs) var(--space-md);
+  color: var(--text-tertiary);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.chat-search__result {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: var(--transition);
+  color: var(--text-primary);
+}
+
+.chat-search__result:hover {
+  background: var(--bg-hover);
+}
+
+.chat-search__result-text {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-search__result-text mark {
+  background: var(--accent-primary-dim);
+  color: var(--accent-primary);
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+.chat-search__filename {
+  color: var(--accent-primary);
+}
+
+.chat-search__result-date {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+/* Chat header kebab menu */
+.chat-menu {
+  position: relative;
+}
+
+.chat-header__menu-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+}
+
+.chat-header__menu-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.chat-header__menu-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.chat-menu__dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  min-width: 200px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  padding: 4px 0;
+  animation: menuFadeIn 0.12s ease-out;
+}
+
+@keyframes menuFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chat-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-align: left;
+}
+
+.chat-menu__item:hover {
+  background: var(--bg-hover);
+}
+
+.chat-menu__item svg {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.chat-menu__item--danger {
+  color: var(--danger, #e53935);
+}
+
+.chat-menu__item--danger svg {
+  color: var(--danger, #e53935);
+}
+
+.chat-menu__item--danger:hover {
+  background: rgba(229, 57, 53, 0.08);
+}
+
+/* Send button sending spinner */
+.send-btn--sending {
+  opacity: 0.7;
+}
+
+.send-spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--text-tertiary);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: sendSpin 0.6s linear infinite;
+}
+
+@keyframes sendSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Message highlight when navigating from search */
+.highlight {
+  animation: messageHighlight 2s ease;
+}
+
+@keyframes messageHighlight {
+  0%, 30% {
+    background: var(--accent-primary-dim);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* ============================================
+   SYSTEM MESSAGES
+   ============================================ */
+.system-message {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-xs) var(--space-lg);
+  margin: var(--space-xs) 0;
+}
+
+.system-message__text {
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  max-width: 80%;
+  text-align: center;
+  line-height: 1.4;
+}
+
+/* ============================================
+   CREATE GROUP MODAL
+   ============================================ */
+.create-group__checkbox {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-left: auto;
+  transition: var(--transition-fast);
+}
+
+.create-group__checkbox.checked {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--text-inverse);
+}
+
+.contacts-modal__item--selected {
+  background: var(--accent-primary-dim);
+}
+
+.create-group__details {
+  padding: var(--space-xl);
+}
+
+.create-group__name-input {
+  font-size: 1rem;
+}
+
+.create-group__footer {
+  display: flex;
+  padding: var(--space-md) var(--space-xl);
+  border-top: 1px solid var(--border-color);
+}
+
+/* ============================================
+   GROUP INFO PANEL (gip)
+   ============================================ */
+.gip {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-xl);
+  width: 360px;
+  max-width: 90vw;
+  max-height: 85vh;
+  position: relative;
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  flex-direction: column;
+  animation: scaleIn 0.2s ease;
+  overflow: hidden;
+}
+
+.gip > .profile-modal__header-actions {
+  z-index: 2;
+}
+
+/* --- Hero: avatar + name --- */
+.gip__hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-xl) var(--space-xl) var(--space-lg);
+  gap: var(--space-md);
+  position: relative;
+}
+
+.gip__avatar-wrap {
+  position: relative;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.gip__avatar {
+  width: 90px;
+  height: 90px;
+  border-radius: var(--radius-full);
+  object-fit: cover;
+  display: block;
+}
+
+.gip__avatar-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+  cursor: pointer;
+  color: #fff;
+  transition: var(--transition);
+  cursor: pointer;
+  color: #fff;
+}
+
+.gip__avatar-overlay {
+  /* Always show a subtle "tap to change" cue; intensify on hover */
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.55) 100%);
+  align-items: flex-end;
+  padding-bottom: 6px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .gip__avatar-wrap:hover .gip__avatar-overlay {
+    background: rgba(0, 0, 0, 0.55);
+    align-items: center;
+    padding-bottom: 0;
+  }
+}
+
+.gip__name {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: center;
+  line-height: 1.3;
+}
+
+.gip__name--editable {
+  cursor: pointer;
+  transition: color 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gip__name--editable::after {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  background-color: currentColor;
+  opacity: 0.55;
+  -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 20h9'/><path d='M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z'/></svg>");
+          mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 20h9'/><path d='M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z'/></svg>");
+  -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+          mask-position: center;
+  -webkit-mask-size: contain;
+          mask-size: contain;
+  flex-shrink: 0;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .gip__name--editable:hover {
+    color: var(--accent-primary);
+  }
+}
+
+.gip__delete-avatar {
+  position: absolute;
+  top: var(--space-md);
+  left: var(--space-md);
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: rgba(248, 81, 73, 0.15);
+  color: var(--accent-danger);
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: var(--transition);
+  opacity: 0;
+}
+
+.gip__hero:hover .gip__delete-avatar {
+  opacity: 1;
+}
+
+.gip__delete-avatar:hover {
+  background: rgba(248, 81, 73, 0.3);
+}
+
+/* --- Name editing --- */
+.gip__name-edit {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.gip__name-input {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 1rem;
+  outline: none;
+  text-align: center;
+  transition: border-color 0.15s;
+}
+
+.gip__name-input:focus {
+  border-color: var(--accent-primary);
+}
+
+.gip__name-edit-actions {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: center;
+}
+
+.gip__name-save,
+.gip__name-cancel {
+  padding: 4px 14px;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.gip__name-save {
+  background: var(--accent-primary-subtle);
+  color: var(--text-inverse);
+}
+
+.gip__name-save:hover {
+  background: var(--accent-primary-muted);
+}
+
+.gip__name-cancel {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.gip__name-cancel:hover {
+  background: var(--bg-hover);
+}
+
+/* --- Members section --- */
+.gip__members-section {
+  flex: 1;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-color);
+}
+
+.gip__members-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-xl);
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  position: sticky;
+  top: 0;
+  background: var(--bg-secondary);
+  z-index: 1;
+}
+
+.gip__add-btn {
+  margin-left: auto;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--accent-primary);
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.gip__add-btn:hover {
+  background: var(--accent-primary-dim);
+}
+
+/* --- Member row --- */
+.gip-member {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-xl);
+  transition: background 0.12s ease;
+  cursor: default;
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+
+.gip-member:hover {
+  background: var(--bg-hover);
+}
+
+.gip-member__avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.gip-member__avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-full);
+  object-fit: cover;
+  display: block;
+}
+
+.gip-member__dot {
+  position: absolute;
+  bottom: 1px;
+  right: 1px;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--bg-secondary);
+  background: var(--text-tertiary);
+  display: none;
+}
+
+.gip-member__dot.online {
+  display: block;
+  background: var(--accent-success);
+}
+
+.gip-member__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.gip-member__name {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gip-member__you {
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
+.gip-member__username {
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+}
+
+.gip-member__status {
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+}
+
+.gip-member__status--online {
+  color: var(--accent-success);
+}
+
+.gip-member__role {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  color: var(--text-tertiary);
+}
+
+.gip-member__role--owner {
+  color: var(--accent-warning);
+}
+
+.gip-member__role--admin {
+  color: var(--accent-primary);
+}
+
+/* --- Right-click context menu --- */
+.gip-context {
+  position: fixed;
+  z-index: 2000;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-xs) 0;
+  min-width: 200px;
+  animation: fadeIn 0.12s ease;
+}
+
+.gip-context__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-sm) var(--space-lg);
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: background 0.12s;
+  text-align: left;
+}
+
+.gip-context__item:hover {
+  background: var(--bg-hover);
+}
+
+.gip-context__item svg {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.gip-context__item--danger {
+  color: var(--accent-danger);
+}
+
+.gip-context__item--danger svg {
+  color: var(--accent-danger);
+}
+
+/* --- Footer actions --- */
+.gip__footer {
+  padding: var(--space-md) var(--space-xl);
+  border-top: 1px solid var(--border-color);
+}
+
+.gip__footer-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.gip__footer-btn--warning {
+  background: rgba(210, 153, 34, 0.1);
+  color: var(--accent-warning);
+}
+
+.gip__footer-btn--warning:hover {
+  background: rgba(210, 153, 34, 0.2);
+}
+
+.gip__footer-btn--danger {
+  background: rgba(248, 81, 73, 0.1);
+  color: var(--accent-danger);
+}
+
+.gip__footer-btn--danger:hover {
+  background: rgba(248, 81, 73, 0.2);
+}
+
+/* ============================================
+   CHAT LIST — GROUP ICON
+   ============================================ */
+.chat-list-item__group-icon {
+  color: var(--text-tertiary);
+  vertical-align: -1px;
+  margin-right: 4px;
+  flex-shrink: 0;
+}

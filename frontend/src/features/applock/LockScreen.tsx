@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { endpoints } from '../../shared/api/endpoints'
+import { isApiStatus, userMessage } from '../../shared/api/errors'
 import { httpPost, setAuthToken } from '../../shared/api/httpClient'
 import type { AuthLoginResponse } from '../../shared/api/types'
 import { openVault, saveAccountKey } from '../../shared/crypto/e2e'
@@ -56,8 +57,7 @@ export function LockScreen() {
           vaultSalt: user.vault_salt,
           encryptedAccountKey: user.encrypted_account_key,
         })
-        accountKeyCtx.setKey(key)
-        await saveAccountKey(key)
+        accountKeyCtx.setKey(await saveAccountKey(key))
       } else {
         const res = await httpPost<AuthLoginResponse>(endpoints.auth.login, {
           username: user.username,
@@ -70,8 +70,8 @@ export function LockScreen() {
       setPassword('')
       unlock()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      if (msg.toLowerCase().includes('401') || msg.toLowerCase().includes('unauthorized')) {
+      const msg = userMessage(err, err instanceof Error ? err.message : String(err))
+      if (isApiStatus(err, 401)) {
         setError('Неверный пароль.')
       } else if (user.vault_salt && user.encrypted_account_key) {
         // openVault has exactly one failure mode for a healthy vault.

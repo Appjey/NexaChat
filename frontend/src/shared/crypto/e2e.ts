@@ -1,5 +1,17 @@
 import { x25519 } from '@noble/curves/ed25519.js'
 
+import { log } from '../log'
+import { isWebBrowser } from '../platform'
+import {
+  deleteIdentity,
+  getIdentity,
+  importX25519Private,
+  importX25519Public,
+  putIdentity,
+  supportsWebCryptoX25519,
+  x25519DeriveShared,
+} from './identityStore'
+
 // End-to-end message encryption — see backend/ops/E2E.md for the full design.
 //
 // Layered keys:
@@ -280,10 +292,58 @@ async function deriveX25519Keypair(
   return { privateKey, publicKey }
 }
 
+// ---------- identity key polymorphism ----------
+//
+// The key the app carries around ("accountKey" everywhere below) is one of:
+//   - the AES-GCM account_key itself (native shells, Electron, and browsers
+//     without WebCrypto X25519): the X25519 pair is re-derived from it on demand;
+//   - a NON-extractable WebCrypto X25519 private key (browsers): produced once
+//     from the account_key by toWebCryptoIdentity and persisted in IndexedDB.
+//     Its public half cannot be exported from the key object, so it is kept in
+//     a side table.
+// Everything that needs the public key or an ECDH goes through the two helpers
+// below, so the rest of the module does not care which one it holds.
+
+const x25519PublicByKey = new WeakMap<CryptoKey, Uint8Array>()
+
+function isX25519Key(key: CryptoKey): boolean {
+  return key.algorithm.name === 'X25519'
+}
+
+async function identityPublicKey(key: CryptoKey): Promise<Uint8Array> {
+  if (isX25519Key(key)) {
+    const pub = x25519PublicByKey.get(key)
+    if (!pub) throw new Error('X25519 identity without a registered public key')
+    return pub
+  }
+  return (await deriveX25519Keypair(key)).publicKey
+}
+
+async function ecdh(key: CryptoKey, peerPublic: Uint8Array): Promise<Uint8Array> {
+  if (isX25519Key(key)) {
+    return x25519DeriveShared(key, await importX25519Public(peerPublic))
+  }
+  const { privateKey } = await deriveX25519Keypair(key)
+  return x25519.getSharedSecret(privateKey, peerPublic)
+}
+
+/**
+ * Turn the account_key into a non-extractable WebCrypto X25519 identity (same
+ * keypair the raw path derives, so a user's public key is identical whether
+ * they are on the web or in the app). The raw scalar exists in JS memory only
+ * for the duration of this call.
+ */
+export async function toWebCryptoIdentity(accountKey: CryptoKey): Promise<CryptoKey> {
+  const { privateKey, publicKey } = await deriveX25519Keypair(accountKey)
+  const webKey = await importX25519Private(privateKey, publicKey)
+  x25519PublicByKey.set(webKey, publicKey)
+  privateKey.fill(0)
+  return webKey
+}
+
 /** Base64 of the user's X25519 public key — what gets uploaded to /api/auth/vault. */
 export async function publicKeyBase64(accountKey: CryptoKey): Promise<string> {
-  const { publicKey } = await deriveX25519Keypair(accountKey)
-  return b64encode(publicKey)
+  return b64encode(await identityPublicKey(accountKey))
 }
 
 /**
@@ -296,9 +356,7 @@ export async function deriveChatKey(
   myAccountKey: CryptoKey,
   peerPublicKeyBase64: string,
 ): Promise<CryptoKey> {
-  const { privateKey } = await deriveX25519Keypair(myAccountKey)
-  const peerPublic = b64decode(peerPublicKeyBase64)
-  const shared = x25519.getSharedSecret(privateKey, peerPublic)
+  const shared = await ecdh(myAccountKey, b64decode(peerPublicKeyBase64))
   // Run HKDF over the raw ECDH output so a discrete-log break against the curve
   // isn't enough to recover the AES key without also breaking SHA-256.
   const baseKey = await crypto.subtle.importKey(
@@ -334,8 +392,8 @@ export async function deriveChatKey(
 //
 // Edge cases worth flagging here so MessageComposer can decide what to do:
 //   - A participant whose public_key is empty hasn't completed E2E onboarding.
-//     The caller should bail out of scheme=2 and fall back to scheme=1 for the
-//     whole group, otherwise that user simply can't read the message.
+//     The caller must refuse the send (the UI keeps the composer disabled until
+//     every member has a key), otherwise that user simply can't read the message.
 //   - The sender's own envelope uses ECDH(self.private, self.public) — well-
 //     defined for X25519, deterministic, and only reproducible by the sender.
 
@@ -533,6 +591,19 @@ export async function unwrapFileKey(
 const STORED_ACCOUNT_KEY = 'account_key_b64'
 
 /**
+ * Where the raw account_key is kept between reloads. Native shells and the
+ * Electron app use localStorage (app-sandboxed storage, mirrored to Capacitor
+ * Preferences on Android). A plain browser tab normally does not store the
+ * raw key at all — it keeps a non-extractable X25519 key in IndexedDB (see
+ * saveAccountKey / identityStore.ts). Only when the engine lacks WebCrypto
+ * X25519 does the browser fall back to sessionStorage: the key dies with the
+ * window and the next visit asks for the password again.
+ */
+function accountKeyStore(): Storage {
+  return isWebBrowser() ? sessionStorage : localStorage
+}
+
+/**
  * Persist the raw account_key bytes (base64) to localStorage + Capacitor Preferences.
  *
  * Threat model: the device's app-private storage is the trust boundary. localStorage in
@@ -541,11 +612,31 @@ const STORED_ACCOUNT_KEY = 'account_key_b64'
  * the OS as part of file-based encryption. If an attacker has code-execution on the
  * device, they read this key — same as any other native messenger.
  */
-export async function saveAccountKey(accountKey: CryptoKey): Promise<void> {
+export async function saveAccountKey(accountKey: CryptoKey): Promise<CryptoKey> {
+  if (isX25519Key(accountKey)) {
+    // Already the persisted web identity (e.g. re-save after a reload).
+    return accountKey
+  }
+  if (isWebBrowser() && (await supportsWebCryptoX25519())) {
+    try {
+      const webKey = await toWebCryptoIdentity(accountKey)
+      const publicKey = x25519PublicByKey.get(webKey)
+      if (!publicKey) throw new Error('missing public key')
+      await putIdentity({ privateKey: webKey, publicKey })
+      try {
+        sessionStorage.removeItem(STORED_ACCOUNT_KEY)
+      } catch {
+        // ignore
+      }
+      return webKey
+    } catch (err) {
+      log.warn('IndexedDB identity store unavailable, keeping the key for this session only:', err)
+    }
+  }
   const rawBuffer = await crypto.subtle.exportKey('raw', accountKey)
   const b64 = b64encode(new Uint8Array(rawBuffer))
   try {
-    localStorage.setItem(STORED_ACCOUNT_KEY, b64)
+    accountKeyStore().setItem(STORED_ACCOUNT_KEY, b64)
   } catch {
     // localStorage may be unavailable in private modes; non-fatal — account_key just
     // won't survive page reload, user re-enters password on next visit.
@@ -557,19 +648,37 @@ export async function saveAccountKey(accountKey: CryptoKey): Promise<void> {
       await Preferences.set({ key: STORED_ACCOUNT_KEY, value: b64 })
     }
   } catch (err) {
-    console.warn('Failed to mirror account_key to Preferences:', err)
+    log.warn('Failed to mirror account_key to Preferences:', err)
   }
+  return accountKey
 }
 
 /** Read the account_key back from localStorage (after hydrate copied it from Prefs). */
 export async function loadStoredAccountKey(): Promise<CryptoKey | null> {
-  const b64 = localStorage.getItem(STORED_ACCOUNT_KEY)
+  if (isWebBrowser()) {
+    // A pre-sessionStorage build may have persisted the key on disk; drop it.
+    try {
+      localStorage.removeItem(STORED_ACCOUNT_KEY)
+    } catch {
+      // ignore
+    }
+    try {
+      const identity = await getIdentity()
+      if (identity) {
+        x25519PublicByKey.set(identity.privateKey, identity.publicKey)
+        return identity.privateKey
+      }
+    } catch (err) {
+      log.warn('IndexedDB identity store unreadable:', err)
+    }
+  }
+  const b64 = accountKeyStore().getItem(STORED_ACCOUNT_KEY)
   if (!b64) return null
   try {
     const raw = b64decode(b64)
     return await importAccountKey(raw)
   } catch (err) {
-    console.warn('Stored account_key is corrupt:', err)
+    log.warn('Stored account_key is corrupt:', err)
     return null
   }
 }
@@ -578,8 +687,14 @@ export async function loadStoredAccountKey(): Promise<CryptoKey | null> {
 export async function clearStoredAccountKey(): Promise<void> {
   try {
     localStorage.removeItem(STORED_ACCOUNT_KEY)
+    sessionStorage.removeItem(STORED_ACCOUNT_KEY)
   } catch {
     // ignore
+  }
+  try {
+    await deleteIdentity()
+  } catch {
+    // no IndexedDB (native) or nothing stored
   }
   try {
     const { Capacitor } = await import('@capacitor/core')
@@ -609,6 +724,6 @@ export async function hydrateAccountKey(): Promise<void> {
       if (existing) await Preferences.set({ key: STORED_ACCOUNT_KEY, value: existing })
     }
   } catch (err) {
-    console.warn('Failed to hydrate account_key from Preferences:', err)
+    log.warn('Failed to hydrate account_key from Preferences:', err)
   }
 }

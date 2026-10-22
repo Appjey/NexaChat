@@ -5,6 +5,7 @@ import {
   hydrateAccountKey,
   loadStoredAccountKey,
 } from '../../shared/crypto/e2e'
+import { log } from '../../shared/log'
 import {
   AccountKeyContext,
   type AccountKeyState,
@@ -32,7 +33,7 @@ export function AccountKeyProvider({ children }: { children: ReactNode }) {
         if (cancelled) return
         setState(key ? { status: 'ready', key } : { status: 'missing' })
       } catch (err) {
-        console.error('Failed to load account_key:', err)
+        log.error('Failed to load account_key:', err)
         if (!cancelled) setState({ status: 'missing' })
       }
     })()

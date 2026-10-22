@@ -21,6 +21,7 @@
 //   * Cache + @capacitor/share — last-resort if even Documents fails
 //     (extremely locked-down ROMs).
 
+import { log } from './log'
 import { Downloads } from './nativeDownloads'
 import { isNative } from './platform'
 
@@ -77,7 +78,7 @@ export async function downloadAttachmentNative(
     const res = await Downloads.saveToDownloads({ data: base64, fileName: safeName, mimeType })
     return { ok: true, savedTo: 'download', humanPath: res.path }
   } catch (err) {
-    console.warn('MediaStore Downloads failed, trying Documents:', err)
+    log.warn('MediaStore Downloads failed, trying Documents:', err)
   }
 
   const { Filesystem, Directory } = await import('@capacitor/filesystem')
@@ -94,7 +95,7 @@ export async function downloadAttachmentNative(
     })
     return { ok: true, savedTo: 'documents', humanPath: `Documents/Messenger/${safeName}` }
   } catch (err) {
-    console.warn('Documents write failed, falling back to share sheet:', err)
+    log.warn('Documents write failed, falling back to share sheet:', err)
   }
 
   // Last resort: write to app cache + invoke the share sheet so the user

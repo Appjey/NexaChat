@@ -6,6 +6,7 @@ import { useAuthContext } from '../features/auth/AuthContext'
 import { HamburgerButton } from '../features/menu/HamburgerButton'
 import { addContact, removeContact } from '../shared/api/contactsApi'
 import { endpoints } from '../shared/api/endpoints'
+import { userMessage } from '../shared/api/errors'
 import { httpGet, httpPost, resolveApiUrl } from '../shared/api/httpClient'
 import type { AvatarUploadResponse,UserProfile } from '../shared/api/types'
 import { useToast } from '../shared/components/ToastContext'
@@ -43,7 +44,7 @@ export default function ProfilePage() {
         const data = await httpGet<UserProfile>(endpoints.profile(userId))
         setProfile(data)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Не удалось загрузить профиль')
+        setError(userMessage(err, 'Не удалось загрузить профиль'))
       } finally {
         setLoading(false)
       }
@@ -80,7 +81,7 @@ export default function ProfilePage() {
         showToast('Аватар обновлён', 'success')
       }
     } catch (err) {
-      showToast('Ошибка загрузки аватара: ' + (err instanceof Error ? err.message : 'Неизвестная ошибка'), 'error')
+      showToast('Ошибка загрузки аватара: ' + (userMessage(err, 'Неизвестная ошибка')), 'error')
     } finally {
       setUploading(false)
     }
@@ -96,7 +97,7 @@ export default function ProfilePage() {
       // Update local state to reflect contact status
       setProfile((prev) => (prev ? { ...prev, is_contact: true } : prev))
     } catch (err) {
-      showToast('Ошибка: ' + (err instanceof Error ? err.message : 'Не удалось добавить контакт'), 'error')
+      showToast('Ошибка: ' + (userMessage(err, 'Не удалось добавить контакт')), 'error')
     }
   }
 
@@ -109,7 +110,7 @@ export default function ProfilePage() {
       setProfile((prev) => (prev ? { ...prev, is_contact: false } : prev))
       cancelConfirm()
     } catch (err) {
-      showToast('Ошибка: ' + (err instanceof Error ? err.message : 'Не удалось удалить контакт'), 'error')
+      showToast('Ошибка: ' + (userMessage(err, 'Не удалось удалить контакт')), 'error')
     }
   }, [profile?.id, showToast, cancelConfirm])
 

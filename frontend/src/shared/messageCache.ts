@@ -1,4 +1,5 @@
 import type { Message } from './api/types'
+import { isWebBrowser } from './platform'
 
 // Offline message cache. Mirrors the in-memory per-chat message cache to
 // localStorage so previously-loaded messages render on a cold start with no
@@ -12,6 +13,10 @@ import type { Message } from './api/types'
 //
 // Capped at the last MAX_CACHED_MESSAGES_PER_CHAT messages per chat to stay well
 // under the ~5 MB localStorage budget even across many chats.
+//
+// Browser builds do not cache at all: the website is the one runtime where the
+// origin's storage is readable from DevTools and by any other script on the
+// origin, and a browser tab is rarely offline anyway.
 
 const KEY_PREFIX = 'cached_msgs_'
 const MAX_CACHED_MESSAGES_PER_CHAT = 50
@@ -22,6 +27,7 @@ function keyFor(chatId: number): string {
 
 /** Persist the last N messages for a chat (best-effort; ignores quota errors). */
 export function saveCachedMessages(chatId: number, messages: Message[]): void {
+  if (isWebBrowser()) return
   try {
     const tail =
       messages.length > MAX_CACHED_MESSAGES_PER_CHAT
@@ -35,6 +41,7 @@ export function saveCachedMessages(chatId: number, messages: Message[]): void {
 
 /** Read cached messages for a chat, or undefined if absent/corrupt. */
 export function loadCachedMessages(chatId: number): Message[] | undefined {
+  if (isWebBrowser()) return undefined
   try {
     const raw = localStorage.getItem(keyFor(chatId))
     if (!raw) return undefined

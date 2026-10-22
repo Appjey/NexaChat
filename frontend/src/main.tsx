@@ -16,18 +16,23 @@ import { hydrateAuthToken } from './shared/api/httpClient'
 import { hydrateAppLockPrefs } from './shared/appLock'
 import { ToastProvider } from './shared/components/Toast'
 import { ThemeProvider } from './shared/context/ThemeContext'
+import { hydrateKeyPins } from './shared/crypto/keyPins'
 import { initEarlyPushHandlers } from './shared/earlyPush'
+import { installErrorReporting } from './shared/errorReporting'
 import { AndroidBackProvider } from './shared/hooks/useAndroidBack'
+import { log } from './shared/log'
 
 // Must run synchronously at module load, before hydrateAuthToken awaits, so we register
 // the push action listener in time for Capacitor's cold-start buffered event.
 initEarlyPushHandlers()
+// log.error → POST /api/client-errors, plus window error / unhandledrejection.
+installErrorReporting()
 
 // App-lock prefs hydrate alongside the token: AppLockProvider decides
 // "locked on cold start?" synchronously from localStorage at first render,
 // so the mirror copy must land before render. allSettled — a failed hydrate
 // must not block the app any more than a failed token hydrate does.
-Promise.allSettled([hydrateAuthToken(), hydrateAppLockPrefs()]).then(() => {
+Promise.allSettled([hydrateAuthToken(), hydrateAppLockPrefs(), hydrateKeyPins()]).then(() => {
   createRoot(document.getElementById('root') as HTMLElement).render(
     <StrictMode>
       <AndroidBackProvider>
@@ -70,6 +75,6 @@ Promise.allSettled([hydrateAuthToken(), hydrateAppLockPrefs()]).then(() => {
 // Register service worker for push notifications
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch((err) => {
-    console.error('Service worker registration failed:', err)
+    log.error('Service worker registration failed:', err)
   })
 }

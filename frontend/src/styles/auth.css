@@ -1,0 +1,260 @@
+/* ============================================
+   AUTH PAGES - Centered minimal design
+   ============================================ */
+.auth-centered {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+
+.auth-card__header {
+  text-align: center;
+}
+
+.brand-text-lg {
+  font-size: 2rem;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+}
+
+.auth-card__subtitle {
+  color: var(--text-tertiary);
+  margin: var(--space-sm) 0 0;
+  font-size: 0.9rem;
+}
+
+.auth-error {
+  background: rgba(248, 81, 73, 0.1);
+  border: 1px solid var(--accent-danger);
+  color: var(--accent-danger);
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.auth-card__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.auth-card__form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.auth-card__form label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.auth-card__form input {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-md);
+  font-size: 1rem;
+  transition: var(--transition);
+}
+
+.auth-card__form input:focus {
+  outline: none;
+  border-color: var(--accent-primary-muted);
+  background: var(--bg-tertiary);
+}
+
+.auth-card__form input::placeholder,
+.auth-card__form input[type="text"]::placeholder,
+.auth-card__form input[type="password"]::placeholder {
+  color: var(--text-tertiary) !important;
+  opacity: 0.6 !important;
+}
+
+.auth-card__submit {
+  background: var(--text-primary);
+  color: var(--bg-primary);
+  border: none;
+  padding: var(--space-md) var(--space-xl);
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+  margin-top: var(--space-sm);
+}
+
+.auth-card__submit:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.auth-card__submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.auth-card__footer {
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--text-tertiary);
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: center;
+}
+
+.auth-card__footer a {
+  color: var(--text-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.auth-card__footer a:hover {
+  text-decoration: underline;
+}
+
+.avatar-upload-container {
+  position: relative;
+  display: inline-block;
+}
+
+.avatar-upload-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  cursor: pointer;
+}
+
+.avatar-upload-container:hover .avatar-upload-overlay {
+  opacity: 1;
+}
+
+.avatar {
+  display: inline-flex;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+  /* Fixed-size circle — never let a flex row (e.g. the chat header with a long
+     "был(а) в сети …" subtitle) compress it into an ellipse. */
+  flex-shrink: 0;
+}
+
+.avatar-sm {
+  width: 32px;
+  height: 32px;
+}
+
+.avatar-md {
+  width: 42px;
+  height: 42px;
+}
+
+.avatar-xl {
+  width: 96px;
+  height: 96px;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.glassy {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-md);
+}
+
+.chat-window.glassy {
+  border-radius: 0;
+}
+
+.profile-hero {
+  padding: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
+.profile-hero__left {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+}
+
+.profile-hero__right {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: flex-end;
+}
+
+.profile-name {
+  margin: 0;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.profile-username {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.profile-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+@media (max-width: 768px) {
+  .profile-hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .profile-hero__right {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .chat-header {
+    padding: 12px 14px;
+  }
+
+  .chat-composer {
+    padding: var(--space-sm);
+  }
+
+  .profile-hero {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .profile-name {
+    font-size: 1.4rem;
+  }
+}

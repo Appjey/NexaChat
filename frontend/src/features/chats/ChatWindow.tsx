@@ -8,16 +8,15 @@ import { ConfirmDialog } from '../../shared/components/ConfirmDialog'
 import { BookmarkIcon, PhoneIcon } from '../../shared/components/Icons'
 import { useToast } from '../../shared/components/ToastContext'
 import { encryptMessage, type GroupRecipientKey } from '../../shared/crypto/e2e'
-import type { GroupKeyStatus } from '../../shared/crypto/peerKeys'
 import {
   encryptGroupMessage,
   getChatKey,
   getGroupKeyStatus,
-  getPeerPublicKey,
   prepareAttachmentForUpload,
   resolveAttachmentRecipients,
   rewrapAttachmentEnvelopes,
 } from '../../shared/crypto/peerKeys'
+import { log } from '../../shared/log'
 import { formatLastSeen } from '../../shared/utils'
 import { useAccountKey } from '../auth/AccountKey'
 import { useCallContext } from '../calls/CallContext'
@@ -29,6 +28,8 @@ import { GroupInfoPanel } from './GroupInfoPanel'
 import { MessageComposer } from './MessageComposer'
 import { MessageList } from './MessageList'
 import { PinnedMessagesBar } from './PinnedMessagesBar'
+import { useChatDraft } from './useChatDraft'
+import { useE2EStatus } from './useE2EStatus'
 
 // Hoist the default empty members array to module scope so the destructured
 // default below resolves to a stable reference. Otherwise every render of
@@ -77,6 +78,9 @@ type Props = {
   // the current chat without a chat switch (used when sharing into the chat
   // that's already open).
   draftReloadKey?: number
+  // Called after the user accepts a peer's changed E2E key so the parent can
+  // re-fetch messages that were shown as placeholders under the old pin.
+  onE2EKeyAccepted?: (peerUserId: number) => void
 }
 
 export function ChatWindow({
@@ -110,6 +114,7 @@ export function ChatWindow({
   onPinMessage,
   onUnpinMessage,
   draftReloadKey = 0,
+  onE2EKeyAccepted,
 }: Props) {
   const [messageText, setMessageText] = useState('')
   const [replyToId, setReplyToId] = useState<number | null>(null)
@@ -133,27 +138,15 @@ export function ChatWindow({
   // and whether the encrypt+send is in flight. Drives the ForwardModal.
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null)
   const [forwarding, setForwarding] = useState(false)
-  // E2E readiness for the active chat. Strict mode: composer is active only
-  // when every recipient (including ourselves) has a published public_key.
-  // Lazy-vault-bootstrap modal in App.tsx guarantees logged-in users always
-  // have a public_key — so 'not-ready' is essentially an edge case (e.g. a
-  // member who hasn't been online since E2E was rolled out).
-  //   - 'loading'   : still fetching keys, composer disabled.
-  //   - 'ready'     : everyone has public_key, composer fully active.
-  //   - 'not-ready' : someone (named in missingMemberNames) is missing a key,
-  //                   composer disabled, yellow banner.
-  type E2EStatus =
-    | { kind: 'loading' }
-    | { kind: 'ready'; groupStatus?: GroupKeyStatus }
-    | { kind: 'not-ready'; missingMemberNames: string[] }
-  const [e2eStatus, setE2EStatus] = useState<E2EStatus>({ kind: 'loading' })
+  const { e2eStatus, resetE2EStatus, handleAcceptKey, afterKeyAccepted } = useE2EStatus({
+    chatId, isGroup, otherUserId, otherUsername, groupMembers, onKeyAccepted: onE2EKeyAccepted,
+  })
+  const { readDraft, clearDraft, persistDraft, currentText } = useChatDraft({
+    chatId, draftReloadKey, messageText, setMessageText,
+  })
   const menuRef = useRef<HTMLDivElement>(null)
   const pendingUploadRef = useRef<{ chatId: number; files: File[] } | null>(null)
   const prevMessagesLenRef = useRef(messages.length)
-  // Mirror of messageText for the cleanup-time save (closures otherwise see
-  // the value at effect-run time, not the latest user input).
-  const messageTextRef = useRef(messageText)
-  useEffect(() => { messageTextRef.current = messageText }, [messageText])
 
   // Latest messages snapshot for the forward action — lets handleForward stay
   // stable (empty deps) so the memoised MessageItem list isn't re-rendered on
@@ -161,30 +154,9 @@ export function ChatWindow({
   const messagesForwardRef = useRef(messages)
   useEffect(() => { messagesForwardRef.current = messages }, [messages])
 
-  // Per-chat draft persistence (localStorage). On chat-enter: restore the
-  // saved draft (or empty string). On send: cleared explicitly elsewhere.
-  // The actual persistence (write side) is driven by a *separate* effect
-  // below — see persistDraft. Reason: on mobile (Capacitor WebView) the user
-  // typically backgrounds or kills the app without switching chats, so a
-  // cleanup-time save wouldn't fire and the draft would be lost. We save
-  // proactively on every keystroke (debounced) + on pagehide/visibilitychange
-  // so the latest text survives a hard kill.
-  const draftKey = useCallback((cid: number) => `chat_draft_${cid}`, [])
-  const persistDraft = useCallback((cid: number, text: string) => {
-    try {
-      if (text) localStorage.setItem(draftKey(cid), text)
-      else localStorage.removeItem(draftKey(cid))
-    } catch { /* quota / private mode */ }
-  }, [draftKey])
 
   useEffect(() => {
-    if (chatId) {
-      let draft = ''
-      try { draft = localStorage.getItem(draftKey(chatId)) ?? '' } catch { /* quota / private mode */ }
-      setMessageText(draft)
-    } else {
-      setMessageText('')
-    }
+    setMessageText(chatId ? readDraft(chatId) : '')
     setReplyToId(null)
     setEditingMessageId(null)
     setSelectedFiles([])
@@ -197,7 +169,7 @@ export function ChatWindow({
     setConfirmAction(null)
     setForwardingMessage(null)
     setForwarding(false)
-    setE2EStatus({ kind: 'loading' })
+    resetE2EStatus()
     pendingUploadRef.current = null
 
     // Safety net for the "switch chats" path: save the OLD chat's draft on
@@ -205,109 +177,13 @@ export function ChatWindow({
     const leavingChatId = chatId
     return () => {
       if (!leavingChatId) return
-      persistDraft(leavingChatId, messageTextRef.current)
+      persistDraft(leavingChatId, currentText())
     }
-  }, [chatId, draftKey, persistDraft])
+  }, [chatId, readDraft, persistDraft, currentText, resetE2EStatus])
 
-  // On-demand draft re-read (parent bumps draftReloadKey) — used when content is
-  // shared into the chat that's already open, so the chatId effect above doesn't
-  // fire. No cleanup here, so it never overwrites the freshly-written draft.
-  useEffect(() => {
-    if (!chatId || draftReloadKey === 0) return
-    try {
-      setMessageText(localStorage.getItem(draftKey(chatId)) ?? '')
-    } catch { /* quota / private mode */ }
-  }, [draftReloadKey, chatId, draftKey])
 
-  // Debounced proactive save on every keystroke. 400 ms is a good balance:
-  // small enough that "type → swipe to background" rarely loses anything,
-  // large enough that we're not hitting localStorage on every character of a
-  // long message. Skipped when chatId is undefined (no active chat).
-  useEffect(() => {
-    if (!chatId) return
-    const t = setTimeout(() => persistDraft(chatId, messageText), 400)
-    return () => clearTimeout(t)
-  }, [chatId, messageText, persistDraft])
 
-  // Mobile + tab-close belt: when the page is about to disappear, flush the
-  // current text synchronously. visibilitychange fires when Android moves the
-  // app to background; pagehide fires on web tab close / navigation away.
-  // Both run before any teardown that could nuke localStorage writes.
-  useEffect(() => {
-    if (!chatId) return
-    const flush = () => persistDraft(chatId, messageTextRef.current)
-    const onVisibility = () => { if (document.visibilityState === 'hidden') flush() }
-    window.addEventListener('pagehide', flush)
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => {
-      window.removeEventListener('pagehide', flush)
-      document.removeEventListener('visibilitychange', onVisibility)
-    }
-  }, [chatId, persistDraft])
 
-  // Fetch E2E readiness for the active chat. Recomputes when participants
-  // change (group member added/removed → groupMembers prop identity flips,
-  // which is debounced upstream via groupInfo state in ChatsPage).
-  //
-  // `setStatusIfChanged` is critical: even with stable deps, React's strict
-  // mode + react-refresh can cause the effect to refire on hot reload. If we
-  // set e2eStatus to a new-object-but-equivalent value each time, the
-  // ensuing re-render makes deps appear "changed" → infinite loop. Compare
-  // shallow contents and skip the update when nothing material changed.
-  useEffect(() => {
-    if (!chatId) return
-    let cancelled = false
-
-    const setStatusIfChanged = (next: E2EStatus) => {
-      setE2EStatus((prev) => {
-        if (prev.kind !== next.kind) return next
-        if (prev.kind === 'ready' && next.kind === 'ready') return prev
-        if (prev.kind === 'not-ready' && next.kind === 'not-ready') {
-          const a = prev.missingMemberNames.join('|')
-          const b = next.missingMemberNames.join('|')
-          return a === b ? prev : next
-        }
-        return next
-      })
-    }
-
-    const resolveMissingNames = (missingIds: number[]) =>
-      missingIds.map((uid) => {
-        const m = groupMembers.find((gm) => gm.user_id === uid)
-        return m?.name || m?.username || `id=${uid}`
-      })
-
-    if (isGroup) {
-      getGroupKeyStatus(chatId).then((status) => {
-        if (cancelled) return
-        if (!status) {
-          setStatusIfChanged({ kind: 'loading' })
-          return
-        }
-        if (status.missingUserIds.length === 0) {
-          setStatusIfChanged({ kind: 'ready', groupStatus: status })
-        } else {
-          setStatusIfChanged({
-            kind: 'not-ready',
-            missingMemberNames: resolveMissingNames(status.missingUserIds),
-          })
-        }
-      }).catch(() => {
-        if (!cancelled) setStatusIfChanged({ kind: 'loading' })
-      })
-    } else if (otherUserId) {
-      getPeerPublicKey(otherUserId).then((key) => {
-        if (cancelled) return
-        setStatusIfChanged(key ? { kind: 'ready' } : { kind: 'not-ready', missingMemberNames: [otherUsername || 'собеседник'] })
-      }).catch(() => {
-        if (!cancelled) setStatusIfChanged({ kind: 'loading' })
-      })
-    } else {
-      setStatusIfChanged({ kind: 'loading' })
-    }
-
-    return () => { cancelled = true }
-  }, [chatId, isGroup, otherUserId, otherUsername, groupMembers])
 
   // Close kebab menu on outside click
   useEffect(() => {
@@ -430,14 +306,14 @@ export function ChatWindow({
 
         await httpPost(endpoints.attachments.upload(uploadChatId, messageId), formData)
       } catch (err) {
-        console.error('Ошибка загрузки вложений:', err)
+        log.error('Ошибка загрузки вложений:', err)
         showToast('Не удалось загрузить вложения', 'error')
       } finally {
         setUploading(false)
       }
     }
 
-    doUpload().catch(console.error)
+    doUpload().catch(log.error)
   }, [messages, currentUserId, showToast, accountKeyCtx.state, e2eStatus, isGroup, otherUserId])
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -509,7 +385,7 @@ export function ChatWindow({
             envelopes,
           }
         } catch (err) {
-          console.error('Group E2E re-encrypt failed on edit:', err)
+          log.error('Group E2E re-encrypt failed on edit:', err)
           showToast('Не удалось зашифровать сообщение, повторите.', 'error')
           return
         }
@@ -530,7 +406,7 @@ export function ChatWindow({
             scheme: 2,
           }
         } catch (err) {
-          console.error('E2E encrypt failed on edit:', err)
+          log.error('E2E encrypt failed on edit:', err)
           showToast('Не удалось зашифровать сообщение, повторите.', 'error')
           return
         }
@@ -543,7 +419,7 @@ export function ChatWindow({
         setMessageText('')
         setEditingMessageId(null)
         if (chatId) {
-          try { localStorage.removeItem(draftKey(chatId)) } catch { /* ignore */ }
+          clearDraft(chatId)
         }
       } else {
         showToast('Не удалось отправить изменение, повторите.', 'error')
@@ -588,7 +464,7 @@ export function ChatWindow({
         throw new Error('no recipient — neither group nor peer userId')
       }
     } catch (err) {
-      console.error('E2E encrypt failed on send:', err)
+      log.error('E2E encrypt failed on send:', err)
       pendingUploadRef.current = null
       setSending(false)
       showToast('Не удалось зашифровать сообщение, попробуйте ещё раз.', 'error')
@@ -601,7 +477,7 @@ export function ChatWindow({
       setReplyToId(null)
       setSelectedFiles([])
       if (chatId) {
-        try { localStorage.removeItem(draftKey(chatId)) } catch { /* ignore */ }
+        clearDraft(chatId)
       }
     } else {
       setSending(false)
@@ -684,7 +560,7 @@ export function ChatWindow({
 
       if (dest.is_group) {
         const status = await getGroupKeyStatus(dest.id)
-        if (!status || status.missingUserIds.length > 0) {
+        if (!status || status.missingUserIds.length > 0 || status.changedUserIds.length > 0) {
           showToast('Нельзя переслать — не все участники настроили шифрование.', 'warning')
           return
         }
@@ -730,7 +606,7 @@ export function ChatWindow({
       setForwardingMessage(null)
       showToast('Переслано', 'success')
     } catch (err) {
-      console.error('Forward failed:', err)
+      log.error('Forward failed:', err)
       showToast('Не удалось переслать сообщение, повторите.', 'error')
     } finally {
       setForwarding(false)
@@ -964,6 +840,25 @@ export function ChatWindow({
           onJumpToMessage={scrollToMessage}
         />
 
+        {e2eStatus.kind === 'key-changed' && (
+          <div className="e2e-banner e2e-banner--danger" role="alert">
+            ⚠️ Ключ шифрования {e2eStatus.peers.map((p) => p.name).join(', ')} изменился. Так бывает,
+            если собеседник заново настроил шифрование, но так же выглядит и попытка
+            перехватить переписку. Сверьте код безопасности в профиле, прежде чем принимать новый ключ.
+            <div className="e2e-banner__actions">
+              {!isGroup && (
+                <button type="button" className="e2e-banner__btn" onClick={() => setIsProfileModalOpen(true)}>
+                  Сверить код
+                </button>
+              )}
+              {e2eStatus.peers.map((p) => (
+                <button key={p.userId} type="button" className="e2e-banner__btn" onClick={() => handleAcceptKey(p.userId)}>
+                  Принять новый ключ{e2eStatus.peers.length > 1 ? `: ${p.name}` : ''}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {e2eStatus.kind === 'not-ready' && (
           <div
             style={{
@@ -1015,6 +910,7 @@ export function ChatWindow({
           username={otherUsername || ''}
           avatarUrl={otherAvatar}
           isOnline={isOtherUserOnline}
+          onKeyAccepted={afterKeyAccepted}
         />
       )}
 

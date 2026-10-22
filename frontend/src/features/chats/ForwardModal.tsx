@@ -6,6 +6,7 @@ import type { ChatItem } from '../../shared/api/types'
 import { BookmarkIcon, CloseIcon, GroupIcon, SearchIcon } from '../../shared/components/Icons'
 import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
+import { log } from '../../shared/log'
 
 type Props = {
   isOpen: boolean
@@ -56,7 +57,7 @@ export function ForwardModal({
         const data = await getCurrentUserChats()
         if (!cancelled) setChats(data)
       } catch (err) {
-        console.error('Failed to load chats:', err)
+        log.error('Failed to load chats:', err)
       } finally {
         if (!cancelled) setLoading(false)
       }
