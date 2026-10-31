@@ -87,7 +87,7 @@ self.addEventListener('push', (event) => {
         return
       }
       console.log('[SW] No visible app tab, showing notification')
-      return self.registration.showNotification(payload.title || 'Nothing', options)
+      return self.registration.showNotification(payload.title || 'NexaChat', options)
     }),
   )
 })

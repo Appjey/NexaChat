@@ -33,7 +33,7 @@ export function LockScreen() {
 
   const tryBiometric = useCallback(async () => {
     setError(null)
-    const verified = await biometricAuthenticate('Nothing заблокирован', 'Подтвердите личность для входа')
+    const verified = await biometricAuthenticate('NexaChat заблокирован', 'Подтвердите личность для входа')
     if (verified) unlock()
   }, [unlock])
 
@@ -114,7 +114,7 @@ export function LockScreen() {
       }}
     >
       <div style={{ maxWidth: 360, width: '100%', textAlign: 'center' }}>
-        <h1 style={{ fontSize: 32, fontWeight: 600, marginBottom: 8 }}>Nothing</h1>
+        <h1 style={{ fontSize: 32, fontWeight: 600, marginBottom: 8 }}>NexaChat</h1>
         <p style={{ color: 'var(--text-secondary, #8b949e)', fontSize: 14, marginBottom: 24 }}>
           Приложение заблокировано
         </p>

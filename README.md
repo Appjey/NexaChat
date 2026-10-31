@@ -1,4 +1,4 @@
-# Nothing
+# NexaChat
 
 Real-time messenger with a React frontend and a Go backend.
 
@@ -212,15 +212,15 @@ npm test                               # Vitest (includes E2E crypto roundtrip s
 
 **Android APK:** always run `npm run sync:android` before `gradlew assembleDebug` / `assembleRelease`. The plain `npm run build` script bakes in an empty `VITE_API_BASE_URL`, which silently routes API calls back at the WebView itself.
 
-**Desktop (macOS, Apple Silicon):** `cd frontend/electron && npm install` once, then `npm run dist:desktop` from `frontend/` produces `electron/release/Nothing-<version>-mac-arm64.dmg`. The shell serves the bundled web app from the `https://localhost` origin (same one the Android WebView reports), so the backend CORS allow-list needs no changes; API/WS traffic goes to the host baked in via `.env.desktop`.
+**Desktop (macOS, Apple Silicon):** `cd frontend/electron && npm install` once, then `npm run dist:desktop` from `frontend/` produces `electron/release/NexaChat-<version>-mac-arm64.dmg`. The shell serves the bundled web app from the `https://localhost` origin (same one the Android WebView reports), so the backend CORS allow-list needs no changes; API/WS traffic goes to the host baked in via `.env.desktop`.
 
 **Opening the DMG build on another Mac.** Without a Developer ID certificate the app is only ad-hoc signed and not notarized, so Gatekeeper refuses it on first launch ("Apple could not verify…" with a *Move to Trash* button). On macOS 15 and later the old right-click → Open trick no longer works; do one of these once:
 
-1. Try to open the app, dismiss the dialog, then **System Settings → Privacy & Security**, scroll to the bottom and press **Open Anyway** next to "Nothing", confirm with your password. Later launches are silent.
+1. Try to open the app, dismiss the dialog, then **System Settings → Privacy & Security**, scroll to the bottom and press **Open Anyway** next to "NexaChat", confirm with your password. Later launches are silent.
 2. Or strip the quarantine flag the browser attached to the download:
 
    ```bash
-   xattr -dr com.apple.quarantine /Applications/Nothing.app
+   xattr -dr com.apple.quarantine /Applications/NexaChat.app
    ```
 
 Proper signing + notarization needs an Apple Developer account: set `CSC_LINK` / `CSC_KEY_PASSWORD` (Developer ID certificate) and the notarytool credentials as repository secrets, and `electron/scripts/adhoc-sign.js` steps aside automatically.
@@ -252,7 +252,7 @@ touched:
    publishes `messenger-<version>.apk` + its `.sha256` to a GitHub Release
    whose body is the annotated tag message (or the commit log)
 3. Builds the macOS arm64 desktop client on an Apple Silicon runner
-   (`Nothing-<version>-mac-arm64.dmg`, ad-hoc signed) and attaches it to the
+   (`NexaChat-<version>-mac-arm64.dmg`, ad-hoc signed) and attaches it to the
    same release
 4. Builds + pushes `messenger-backend:<version>` and `messenger-frontend:<version>`
    Docker images to GHCR (plus `latest`)

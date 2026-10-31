@@ -74,7 +74,7 @@ export default function RegisterPage() {
     <div className="auth-centered">
       <div className="auth-card">
         <div className="auth-card__header">
-          <span className="brand-text-lg">Nothing</span>
+          <span className="brand-text-lg">NexaChat</span>
           <p className="auth-card__subtitle">Создайте аккаунт</p>
         </div>
 

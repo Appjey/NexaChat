@@ -2,7 +2,7 @@
   "name": "messenger-desktop",
   "private": true,
   "version": "1.5.5",
-  "description": "Nothing desktop client — Electron shell around the web bundle",
+  "description": "NexaChat desktop client — Electron shell around the web bundle",
   "license": "AGPL-3.0-or-later",
   "main": "main.js",
   "scripts": {
@@ -15,7 +15,7 @@
   },
   "build": {
     "appId": "com.messenger.app",
-    "productName": "Nothing",
+    "productName": "NexaChat",
     "afterPack": "scripts/adhoc-sign.js",
     "directories": {
       "output": "release",
@@ -37,7 +37,7 @@
       ],
       "category": "public.app-category.social-networking",
       "icon": "build/icon.png",
-      "artifactName": "Nothing-${version}-mac-arm64.${ext}",
+      "artifactName": "NexaChat-${version}-mac-arm64.${ext}",
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Микрофон используется для аудиозвонков."
       }

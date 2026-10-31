@@ -216,7 +216,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.version.outputs.name }}
-          files: frontend/electron/release/Nothing-${{ needs.version.outputs.name }}-mac-arm64.dmg
+          files: frontend/electron/release/NexaChat-${{ needs.version.outputs.name }}-mac-arm64.dmg
           fail_on_unmatched_files: true
 
   images:
