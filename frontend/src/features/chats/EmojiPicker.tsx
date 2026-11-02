@@ -1,6 +1,6 @@
 import './EmojiPicker.css'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { CloseIcon } from '../../shared/components/Icons'
 import type { EmojiCategory } from './emojiData'
@@ -25,16 +25,18 @@ function CategoryIcon({ id }: { id: string }) {
       return (
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="9" />
-          <path d="M8.5 14.5s1.3 1.8 3.5 1.8 3.5-1.8 3.5-1.8" />
-          <line x1="9" y1="9.5" x2="9.01" y2="9.5" strokeWidth="2.4" />
-          <line x1="15" y1="9.5" x2="15.01" y2="9.5" strokeWidth="2.4" />
+          <path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8" />
+          <circle cx="9" cy="9.5" r="1" fill="currentColor" stroke="none" />
+          <circle cx="15" cy="9.5" r="1" fill="currentColor" stroke="none" />
         </svg>
       )
     case 'people':
       return (
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <circle cx="12" cy="8" r="3.5" />
-          <path d="M5.5 20a6.5 6.5 0 0 1 13 0" />
+          <path d="M18 11V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2" />
+          <path d="M14 10V4a2 2 0 0 0-2-2 2 2 0 0 0-2 2v6" />
+          <path d="M10 10.5V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2v8" />
+          <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
         </svg>
       )
     case 'animals':
@@ -87,33 +89,59 @@ function CategoryIcon({ id }: { id: string }) {
 
 export function EmojiPicker({ onSelect, onClose }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const tabsRef = useRef<HTMLDivElement>(null)
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const pendingCategoryRef = useRef<string | null>(null)
-  const [activeCategory, setActiveCategory] = useState('smileys')
-  const [searchQuery, setSearchQuery] = useState('')
-  const { recentEmojis, addRecentEmoji } = useRecentEmojis()
+  const programmaticTargetRef = useRef<{ id: string; until: number } | null>(null)
+  const prevRecentHeightRef = useRef<number>(0)
+  const wasSearchingRef = useRef<boolean>(false)
 
-  // Escape to close
+  const { recentEmojis, addRecentEmoji } = useRecentEmojis()
+  const [activeCategory, setActiveCategory] = useState(() =>
+    recentEmojis.length > 0 ? 'recent' : 'smileys',
+  )
+  const [searchQuery, setSearchQuery] = useState('')
+
+  // Auto-focus search input on desktop (fine pointer) without popping mobile keyboard
+  useEffect(() => {
+    if (
+      typeof window !== 'undefined' &&
+      window.innerWidth > 768 &&
+      window.matchMedia?.('(pointer: fine)').matches
+    ) {
+      searchInputRef.current?.focus({ preventScroll: true })
+    }
+  }, [])
+
+  // Escape to close (or clear search first if focused inside non-empty search input)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        if (searchQuery.trim().length > 0 && document.activeElement === searchInputRef.current) {
+          e.preventDefault()
+          setSearchQuery('')
+          return
+        }
+        onClose()
+      }
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [onClose])
+  }, [onClose, searchQuery])
 
   const isSearching = searchQuery.trim().length > 0
 
-  // Pre-build recent category object
+  // Pre-build recent category object (shown when non-empty or explicitly selected)
   const recentCategory = useMemo<EmojiCategory | null>(
     () =>
-      recentEmojis.length > 0
+      recentEmojis.length > 0 || activeCategory === 'recent'
         ? { id: 'recent', name: 'Недавние', icon: '🕐', emojis: recentEmojis }
         : null,
-    [recentEmojis],
+    [recentEmojis, activeCategory],
   )
 
-  // All categories to render (recent + standard)
+  // All categories to render in the scroll view
   const allCategories = useMemo(() => {
     const cats: EmojiCategory[] = []
     if (recentCategory) cats.push(recentCategory)
@@ -121,17 +149,47 @@ export function EmojiPicker({ onSelect, onClose }: Props) {
     return cats
   }, [recentCategory])
 
-  // Scroll-spy (throttled via rAF)
+  // Prevent layout jump in the scroll container when `recent` section appears or grows
+  // while the user is browsing/clicking emojis in another category.
+  useLayoutEffect(() => {
+    if (isSearching) return
+    const recentEl = sectionRefs.current.get('recent')
+    const newHeight = recentEl ? recentEl.offsetHeight : 0
+    const prevHeight = prevRecentHeightRef.current
+    prevRecentHeightRef.current = newHeight
+
+    const container = scrollRef.current
+    if (!container) return
+    const delta = newHeight - prevHeight
+    if (delta !== 0 && activeCategory !== 'recent') {
+      if (prevHeight === 0 && newHeight > 0 && container.scrollTop < 12) {
+        container.scrollTop += newHeight
+      } else if (container.scrollTop > 12) {
+        container.scrollTop = Math.max(0, container.scrollTop + delta)
+      }
+    }
+  }, [recentEmojis, activeCategory, isSearching])
+
+  // Scroll-spy (throttled via rAF, guarded against overwriting programmatic tab jumps)
   useEffect(() => {
     const container = scrollRef.current
     if (!container || isSearching) return
 
     let rafId = 0
+    const clearProgrammaticLock = () => {
+      programmaticTargetRef.current = null
+    }
     const handleScroll = () => {
       if (rafId) return
       rafId = requestAnimationFrame(() => {
         rafId = 0
-        const top = container.scrollTop + 14
+        const lock = programmaticTargetRef.current
+        if (lock && performance.now() < lock.until) {
+          setActiveCategory((prev) => (prev === lock.id ? prev : lock.id))
+          return
+        }
+        programmaticTargetRef.current = null
+        const top = container.scrollTop + 24
         let active = allCategories[0]?.id ?? 'smileys'
         for (const cat of allCategories) {
           const el = sectionRefs.current.get(cat.id)
@@ -144,33 +202,47 @@ export function EmojiPicker({ onSelect, onClose }: Props) {
     }
 
     container.addEventListener('scroll', handleScroll, { passive: true })
+    container.addEventListener('wheel', clearProgrammaticLock, { passive: true })
+    container.addEventListener('touchmove', clearProgrammaticLock, { passive: true })
     return () => {
       container.removeEventListener('scroll', handleScroll)
+      container.removeEventListener('wheel', clearProgrammaticLock)
+      container.removeEventListener('touchmove', clearProgrammaticLock)
       if (rafId) cancelAnimationFrame(rafId)
     }
   }, [allCategories, isSearching])
 
-  // Complete deferred category scroll when leaving search mode
-  useEffect(() => {
-    if (isSearching || !pendingCategoryRef.current) return
-    const targetId = pendingCategoryRef.current
+  // Synchronously position scroll when leaving search mode (either via category click or clear)
+  useLayoutEffect(() => {
+    const wasSearching = wasSearchingRef.current
+    wasSearchingRef.current = isSearching
+    if (isSearching || !wasSearching) return
+
+    const container = scrollRef.current
+    if (!container) return
+    const targetId = pendingCategoryRef.current ?? activeCategory
     pendingCategoryRef.current = null
     const el = sectionRefs.current.get(targetId)
-    const container = scrollRef.current
-    if (el && container) {
-      container.scrollTop = el.offsetTop
+    if (el) {
+      programmaticTargetRef.current = { id: targetId, until: performance.now() + 200 }
+      container.scrollTop = targetId === allCategories[0]?.id ? 0 : Math.max(0, el.offsetTop - 2)
+    } else {
+      container.scrollTop = 0
     }
-  }, [isSearching])
+  }, [isSearching, activeCategory, allCategories])
 
-  // Search filter
+  // Deduplicated search filter (includes recent + all categories without duplicate keys)
   const filteredEmojis = useMemo(() => {
     const q = searchQuery.toLowerCase().trim()
     if (!q) return []
+    const seen = new Set<string>()
     const results: string[] = []
     for (const cat of EMOJI_CATEGORIES) {
       for (const emoji of cat.emojis) {
+        if (seen.has(emoji)) continue
         const kw = EMOJI_KEYWORDS[emoji]
-        if (kw?.some((k) => k.includes(q))) {
+        if (kw?.some((k) => k.includes(q)) || cat.name.toLowerCase().includes(q)) {
+          seen.add(emoji)
           results.push(emoji)
         }
       }
@@ -181,19 +253,58 @@ export function EmojiPicker({ onSelect, onClose }: Props) {
   const handleCategoryClick = useCallback(
     (id: string) => {
       setActiveCategory(id)
+      programmaticTargetRef.current = { id, until: performance.now() + 200 }
       if (isSearching) {
         pendingCategoryRef.current = id
         setSearchQuery('')
         return
       }
-      const el = sectionRefs.current.get(id)
-      const container = scrollRef.current
-      if (el && container) {
-        container.scrollTop = el.offsetTop
-      }
+      requestAnimationFrame(() => {
+        const el = sectionRefs.current.get(id)
+        const container = scrollRef.current
+        if (el && container) {
+          programmaticTargetRef.current = { id, until: performance.now() + 200 }
+          container.scrollTop = id === 'recent' ? 0 : Math.max(0, el.offsetTop - 2)
+        }
+      })
     },
     [isSearching],
   )
+
+  const handleTabsKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'Home' && e.key !== 'End') {
+        return
+      }
+      const tabs = tabsRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+      if (!tabs || tabs.length === 0) return
+      e.preventDefault()
+      const list = Array.from(tabs)
+      const currentIdx = list.indexOf(document.activeElement as HTMLButtonElement)
+      let nextIdx = 0
+      if (e.key === 'Home') {
+        nextIdx = 0
+      } else if (e.key === 'End') {
+        nextIdx = list.length - 1
+      } else if (e.key === 'ArrowRight') {
+        nextIdx = currentIdx < 0 ? 0 : (currentIdx + 1) % list.length
+      } else if (e.key === 'ArrowLeft') {
+        nextIdx = currentIdx <= 0 ? list.length - 1 : currentIdx - 1
+      }
+      const nextBtn = list[nextIdx]
+      if (nextBtn) {
+        nextBtn.focus({ preventScroll: true })
+        const catId = nextBtn.getAttribute('data-cat-id')
+        if (catId) handleCategoryClick(catId)
+      }
+    },
+    [handleCategoryClick],
+  )
+
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery('')
+    searchInputRef.current?.focus({ preventScroll: true })
+  }, [])
 
   const handleEmojiClick = useCallback(
     (emoji: string) => {
@@ -216,7 +327,15 @@ export function EmojiPicker({ onSelect, onClose }: Props) {
       {/* Header bar: expression mode switcher slot + close button */}
       <div className="emoji-picker__header">
         <div className="emoji-picker__modes" data-expression-slot="modes">
-          <span className="emoji-picker__mode-pill active">Эмодзи</span>
+          <span className="emoji-picker__mode-pill active">
+            <svg className="emoji-picker__mode-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8" />
+              <circle cx="9" cy="9.5" r="1" fill="currentColor" stroke="none" />
+              <circle cx="15" cy="9.5" r="1" fill="currentColor" stroke="none" />
+            </svg>
+            <span>Эмодзи</span>
+          </span>
         </div>
         <button
           type="button"
@@ -230,7 +349,10 @@ export function EmojiPicker({ onSelect, onClose }: Props) {
       </div>
 
       {/* Search bar */}
-      <div className="emoji-picker__search-bar">
+      <div
+        className="emoji-picker__search-bar"
+        onClick={() => searchInputRef.current?.focus({ preventScroll: true })}
+      >
         <svg
           className="emoji-picker__search-icon"
           viewBox="0 0 24 24"
@@ -245,6 +367,7 @@ export function EmojiPicker({ onSelect, onClose }: Props) {
           <path d="m21 21-4.35-4.35" />
         </svg>
         <input
+          ref={searchInputRef}
           type="text"
           className="emoji-picker__search-input"
           placeholder="Поиск эмодзи…"
@@ -257,29 +380,37 @@ export function EmojiPicker({ onSelect, onClose }: Props) {
             type="button"
             className="emoji-picker__search-clear"
             aria-label="Очистить поиск"
-            onClick={() => setSearchQuery('')}
+            onClick={(e) => {
+              e.stopPropagation()
+              handleClearSearch()
+            }}
           >
             <CloseIcon size={12} />
           </button>
         )}
       </div>
 
-      {/* Category tabs row (monochrome vector icons) */}
+      {/* Category tabs row (9 monochrome vector icons) */}
       <div className="emoji-picker__toolbar">
-        <div className="emoji-picker__tabs" role="tablist" aria-label="Категории эмодзи">
-          {recentCategory && (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={!isSearching && activeCategory === 'recent'}
-              className={`emoji-picker__tab${!isSearching && activeCategory === 'recent' ? ' active' : ''}`}
-              onClick={() => handleCategoryClick('recent')}
-              aria-label="Недавние"
-              title="Недавние"
-            >
-              <CategoryIcon id="recent" />
-            </button>
-          )}
+        <div
+          ref={tabsRef}
+          className="emoji-picker__tabs"
+          role="tablist"
+          aria-label="Категории эмодзи"
+          onKeyDown={handleTabsKeyDown}
+        >
+          <button
+            type="button"
+            role="tab"
+            data-cat-id="recent"
+            aria-selected={!isSearching && activeCategory === 'recent'}
+            className={`emoji-picker__tab${!isSearching && activeCategory === 'recent' ? ' active' : ''}`}
+            onClick={() => handleCategoryClick('recent')}
+            aria-label="Недавние"
+            title="Недавние"
+          >
+            <CategoryIcon id="recent" />
+          </button>
           {EMOJI_CATEGORIES.map((cat) => {
             const isActive = !isSearching && activeCategory === cat.id
             return (
@@ -287,6 +418,7 @@ export function EmojiPicker({ onSelect, onClose }: Props) {
                 key={cat.id}
                 type="button"
                 role="tab"
+                data-cat-id={cat.id}
                 aria-selected={isActive}
                 className={`emoji-picker__tab${isActive ? ' active' : ''}`}
                 onClick={() => handleCategoryClick(cat.id)}
@@ -315,6 +447,7 @@ export function EmojiPicker({ onSelect, onClose }: Props) {
                       key={emoji}
                       type="button"
                       className="emoji-btn"
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => handleEmojiClick(emoji)}
                     >
                       {emoji}
@@ -335,18 +468,25 @@ export function EmojiPicker({ onSelect, onClose }: Props) {
                 ref={(el) => setSectionRef(cat.id, el)}
               >
                 <div className="emoji-picker__section-title">{cat.name}</div>
-                <div className="emoji-picker__grid">
-                  {cat.emojis.map((emoji) => (
-                    <button
-                      key={emoji}
-                      type="button"
-                      className="emoji-btn"
-                      onClick={() => handleEmojiClick(emoji)}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
+                {cat.emojis.length > 0 ? (
+                  <div className="emoji-picker__grid">
+                    {cat.emojis.map((emoji, idx) => (
+                      <button
+                        key={`${cat.id}-${emoji}-${idx}`}
+                        type="button"
+                        className="emoji-btn"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => handleEmojiClick(emoji)}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="emoji-picker__recent-empty">
+                    Здесь появятся недавно использованные эмодзи
+                  </div>
+                )}
               </div>
             ))}
           </>

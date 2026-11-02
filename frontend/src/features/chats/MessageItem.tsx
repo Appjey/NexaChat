@@ -364,38 +364,71 @@ function MessageItemInner({
   // flicker) because the menu width/height depend on which items show — the
   // old hardcoded 150×200 estimate let wide/tall menus overflow.
   const menuRef = useRef<HTMLDivElement>(null)
+  const didAutoFocusMenuRef = useRef(false)
   useLayoutEffect(() => {
-    if (!contextMenu.visible) return
+    if (!contextMenu.visible) {
+      didAutoFocusMenuRef.current = false
+      return
+    }
     const el = menuRef.current
     if (!el) return
     const padding = 12
-    const { width, height } = el.getBoundingClientRect()
-    const x = Math.max(padding, Math.min(contextMenu.x, window.innerWidth - width - padding))
-    const y = Math.max(padding, Math.min(contextMenu.y, window.innerHeight - height - padding))
+    const rect = el.getBoundingClientRect()
+    const width = Math.max(el.offsetWidth, rect.width)
+    const height = Math.max(el.offsetHeight, rect.height)
+    const viewportW = window.visualViewport?.width ?? window.innerWidth
+    const viewportH = window.visualViewport?.height ?? window.innerHeight
+    const maxX = Math.max(padding, viewportW - width - padding)
+    const maxY = Math.max(padding, viewportH - height - padding)
+    const x = Math.max(padding, Math.min(contextMenu.x, maxX))
+    const y = Math.max(padding, Math.min(contextMenu.y, maxY))
     if (x !== contextMenu.x || y !== contextMenu.y) {
       setContextMenu((prev) => ({ ...prev, x, y }))
     }
+    if (!didAutoFocusMenuRef.current) {
+      didAutoFocusMenuRef.current = true
+      const firstItem = el.querySelector<HTMLButtonElement>('[role="menuitem"]')
+      firstItem?.focus({ preventScroll: true })
+    }
   }, [contextMenu.visible, contextMenu.x, contextMenu.y])
+
+  const focusComposerInput = useCallback(() => {
+    requestAnimationFrame(() => {
+      const input = document.getElementById('message') as HTMLTextAreaElement | null
+      if (input && !input.disabled) {
+        input.focus({ preventScroll: true })
+        const len = input.value.length
+        input.setSelectionRange(len, len)
+      }
+    })
+  }, [])
 
   const handleReply = useCallback(() => {
     onReply(message.id)
     closeContextMenu()
-  }, [message.id, onReply, closeContextMenu])
+    focusComposerInput()
+  }, [message.id, onReply, closeContextMenu, focusComposerInput])
 
   const handleEdit = useCallback(() => {
     onEdit(message.id, message.text)
     closeContextMenu()
-  }, [message.id, message.text, onEdit, closeContextMenu])
+    focusComposerInput()
+  }, [message.id, message.text, onEdit, closeContextMenu, focusComposerInput])
 
   const handleDelete = useCallback(() => {
     onDelete(message.id)
     closeContextMenu()
   }, [message.id, onDelete, closeContextMenu])
 
+  const copyableText = message.text.trim()
+  const canEditMessage = isOwn && message.scheme === 2
+
   const handleCopyText = useCallback(() => {
-    navigator.clipboard.writeText(message.text)
+    if (copyableText) {
+      void navigator.clipboard?.writeText(copyableText)
+    }
     closeContextMenu()
-  }, [message.text, closeContextMenu])
+  }, [copyableText, closeContextMenu])
 
   const handleForward = useCallback(() => {
     onForward(message.id)
@@ -412,6 +445,24 @@ function MessageItemInner({
     closeContextMenu()
   }, [message.id, onUnpin, closeContextMenu])
 
+  const moveMenuFocus = useCallback((key: string) => {
+    const items = menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
+    if (!items || items.length === 0) return
+    const list = Array.from(items)
+    const currentIndex = list.indexOf(document.activeElement as HTMLButtonElement)
+    let nextIndex = 0
+    if (key === 'Home') {
+      nextIndex = 0
+    } else if (key === 'End') {
+      nextIndex = list.length - 1
+    } else if (key === 'ArrowDown') {
+      nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % list.length
+    } else if (key === 'ArrowUp') {
+      nextIndex = currentIndex <= 0 ? list.length - 1 : currentIndex - 1
+    }
+    list[nextIndex]?.focus({ preventScroll: true })
+  }, [])
+
   const handleMenuKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
       if (e.key === 'Escape') {
@@ -419,37 +470,34 @@ function MessageItemInner({
         closeContextMenu()
         return
       }
-      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') {
-        return
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+        e.preventDefault()
+        e.stopPropagation()
+        moveMenuFocus(e.key)
       }
-      const items = menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
-      if (!items || items.length === 0) return
-      e.preventDefault()
-      const list = Array.from(items)
-      const currentIndex = list.indexOf(document.activeElement as HTMLButtonElement)
-      let nextIndex = 0
-      if (e.key === 'Home') {
-        nextIndex = 0
-      } else if (e.key === 'End') {
-        nextIndex = list.length - 1
-      } else if (e.key === 'ArrowDown') {
-        nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % list.length
-      } else if (e.key === 'ArrowUp') {
-        nextIndex = currentIndex <= 0 ? list.length - 1 : currentIndex - 1
-      }
-      list[nextIndex]?.focus()
     },
-    [closeContextMenu],
+    [closeContextMenu, moveMenuFocus],
   )
 
-  // Close context menu on click outside, scroll, resize, or Escape
+  // Close context menu on click outside, scroll, resize, or Escape, and allow
+  // arrow-key navigation even if focus hasn't entered the menu yet.
   useEffect(() => {
     if (!contextMenu.visible) return
 
     const handleClickOutside = () => closeContextMenu()
     const handleScroll = () => closeContextMenu()
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeContextMenu()
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        closeContextMenu()
+        return
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+        if (!menuRef.current?.contains(document.activeElement)) {
+          e.preventDefault()
+          moveMenuFocus(e.key)
+        }
+      }
     }
 
     document.addEventListener('click', handleClickOutside)
@@ -468,7 +516,7 @@ function MessageItemInner({
         activeContextMenuCloser = null
       }
     }
-  }, [contextMenu.visible, closeContextMenu])
+  }, [contextMenu.visible, closeContextMenu, moveMenuFocus])
 
   const emojiOnly = !message.is_deleted && isEmojiOnly(message.text)
 
@@ -491,12 +539,13 @@ function MessageItemInner({
         onContextMenu={handleContextMenu}
       >
         {isPinned && (
-          <span className="message-pin-indicator" title="Закреплено" aria-label="Закреплено">
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <div className="message-pin-indicator" title="Закреплено" aria-label="Закреплено">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <line x1="12" y1="17" x2="12" y2="22" />
               <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
             </svg>
-          </span>
+            <span>Закреплено</span>
+          </div>
         )}
         {forwardedFromId != null && !message.is_deleted && (
           <div className="forwarded-label">
@@ -605,13 +654,16 @@ function MessageItemInner({
             </svg>
             <span>Переслать</span>
           </button>
-          <button type="button" role="menuitem" className="context-menu-item" onClick={handleCopyText}>
-            <svg className="context-menu-item__icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-            </svg>
-            <span>Копировать</span>
-          </button>
+          {Boolean(copyableText) && (
+            <button type="button" role="menuitem" className="context-menu-item" onClick={handleCopyText}>
+              <svg className="context-menu-item__icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+              <span>Копировать</span>
+              <span className="context-menu-item__shortcut" aria-hidden="true">⌘C</span>
+            </button>
+          )}
           {canPin && !isPinned && (
             <button type="button" role="menuitem" className="context-menu-item" onClick={handlePin}>
               <svg className="context-menu-item__icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -634,18 +686,22 @@ function MessageItemInner({
           )}
           {isOwn && (
             <>
-              <button type="button" role="menuitem" className="context-menu-item" onClick={handleEdit}>
-                <svg className="context-menu-item__icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M12 20h9" />
-                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                </svg>
-                <span>Редактировать</span>
-              </button>
+              {canEditMessage && (
+                <button type="button" role="menuitem" className="context-menu-item" onClick={handleEdit}>
+                  <svg className="context-menu-item__icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                  </svg>
+                  <span>Редактировать</span>
+                </button>
+              )}
               <div className="context-menu-divider" role="separator" />
               <button type="button" role="menuitem" className="context-menu-item danger" onClick={handleDelete}>
                 <svg className="context-menu-item__icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <polyline points="3 6 5 6 21 6" />
                   <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  <line x1="10" y1="11" x2="10" y2="17" />
+                  <line x1="14" y1="11" x2="14" y2="17" />
                 </svg>
                 <span>Удалить</span>
               </button>

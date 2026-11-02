@@ -3,20 +3,27 @@
    ============================================ */
 .context-menu {
   position: fixed;
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border-light);
+  background-color: #1B2230;
+  border: 1px solid #33405A;
   border-radius: 12px;
   box-shadow: var(--shadow-xl);
   z-index: 10000;
   min-width: 184px;
-  max-width: 232px;
+  width: max-content;
+  max-width: min(212px, calc(100vw - 24px));
   padding: 5px;
   display: flex;
   flex-direction: column;
   gap: 1px;
   animation: contextMenuIn 0.12s cubic-bezier(0.2, 0, 0, 1);
-  max-height: calc(100vh - 24px);
+  transform-origin: top left;
+  max-height: calc(100dvh - 24px);
   overflow-y: auto;
+}
+
+[data-theme="light"] .context-menu {
+  background-color: var(--bg-elevated);
+  border-color: var(--border-color);
 }
 
 @keyframes contextMenuIn {
@@ -38,7 +45,7 @@
   background: transparent;
   border-radius: 8px;
   cursor: pointer;
-  transition: background-color 0.12s ease, color 0.12s ease;
+  transition: background-color 0.12s ease, color 0.12s ease, transform 0.08s ease;
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: 0.84375rem;
@@ -59,10 +66,25 @@
   transition: color 0.12s ease;
 }
 
+.context-menu-item__shortcut {
+  margin-left: auto;
+  padding-left: 10px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  letter-spacing: 0.01em;
+}
+
 .context-menu-item:hover,
 .context-menu-item:focus-visible {
-  background-color: var(--bg-hover);
+  background-color: rgba(124, 92, 255, 0.16);
+  color: var(--text-primary);
   outline: none;
+}
+
+.context-menu-item:active {
+  background-color: rgba(124, 92, 255, 0.24);
+  transform: scale(0.99);
 }
 
 .context-menu-item:hover .context-menu-item__icon,
@@ -72,23 +94,31 @@
 
 .context-menu-divider {
   height: 1px;
-  background-color: var(--border-color);
+  background-color: #262F42;
   margin: 4px 6px;
   flex-shrink: 0;
 }
 
+[data-theme="light"] .context-menu-divider {
+  background-color: var(--border-color);
+}
+
 .context-menu-item.danger {
-  color: var(--accent-danger);
+  color: #F06464;
 }
 
 .context-menu-item.danger .context-menu-item__icon {
-  color: var(--accent-danger);
+  color: #F06464;
 }
 
 .context-menu-item.danger:hover,
 .context-menu-item.danger:focus-visible {
-  background-color: var(--accent-danger-dim);
-  color: var(--accent-danger);
+  background-color: rgba(240, 100, 100, 0.14);
+  color: #F06464;
+}
+
+.context-menu-item.danger:active {
+  background-color: rgba(240, 100, 100, 0.22);
 }
 
 /* ============================================
@@ -185,11 +215,22 @@
 }
 
 .message-pin-indicator {
-  position: absolute;
-  top: 6px;
-  right: 8px;
-  font-size: 0.7rem;
-  opacity: 0.65;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 4px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--accent-primary);
+}
+
+.message-self .message-pin-indicator {
+  color: #C4B5FD;
+}
+
+[data-theme="light"] .message-self .message-pin-indicator {
+  color: var(--accent-primary);
 }
 
 /* ============================================
@@ -1212,8 +1253,9 @@
   color: var(--text-muted);
 }
 
-.composer-input:focus {
-  outline: none;
+.composer-input:focus,
+.composer-input:focus-visible {
+  outline: none !important;
   box-shadow: none !important;
   background: transparent !important;
   border: none !important;
@@ -1228,7 +1270,23 @@
   color: var(--text-muted);
 }
 
-@media (max-width: 767px) {
+@media (max-width: 768px) {
+  .chat-window--emoji-open {
+    flex-direction: column;
+  }
+
+  .chat-window--emoji-open .chat-window__main {
+    display: contents;
+  }
+
+  .chat-window--emoji-open .emoji-picker {
+    order: 2;
+  }
+
+  .chat-window--emoji-open .chat-composer {
+    order: 3;
+  }
+
   .chat-header {
     padding: 10px 12px;
   }
