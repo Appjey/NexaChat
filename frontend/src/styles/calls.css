@@ -2,19 +2,26 @@
    CALL — HEADER BUTTON
    ============================================ */
 .chat-header__call-btn {
-  background: none;
-  border: none;
-  color: var(--accent-success);
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  min-height: 38px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
   cursor: pointer;
-  padding: 6px;
-  border-radius: var(--radius-sm);
-  display: flex;
+  padding: 0;
+  border-radius: 12px;
+  display: inline-flex;
   align-items: center;
-  transition: background 0.15s, opacity 0.15s;
+  justify-content: center;
+  transition: var(--transition);
 }
 
-.chat-header__call-btn:hover {
+.chat-header__call-btn:hover:not(:disabled) {
   background: var(--bg-hover);
+  border-color: var(--border-light);
+  color: var(--text-primary);
 }
 
 .chat-header__call-btn:disabled {
@@ -55,7 +62,7 @@
   width: 90px;
   height: 90px;
   border-radius: 50%;
-  background: rgba(63, 185, 80, 0.15);
+  background: var(--accent-primary-dim);
   animation: pulse 1.5s ease-in-out infinite;
 }
 
@@ -112,7 +119,7 @@
 }
 
 .incoming-call-modal__btn--accept {
-  background: var(--accent-success);
+  background: var(--accent-primary);
 }
 
 .incoming-call-modal__btn--reject {
@@ -128,8 +135,9 @@
   left: 0;
   right: 0;
   height: 48px;
-  background: var(--accent-success);
-  color: white;
+  background: var(--bg-selected);
+  border-bottom: 1px solid rgba(124, 92, 255, 0.35);
+  color: var(--text-primary);
   display: flex;
   align-items: center;
   justify-content: space-between;

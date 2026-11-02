@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { addContact, getContacts, searchUsers } from '../../shared/api/contactsApi'
 import { resolveApiUrl } from '../../shared/api/httpClient'
 import type { UserListItem } from '../../shared/api/types'
+import { Avatar } from '../../shared/components/Avatar'
 import { ConfirmDialog } from '../../shared/components/ConfirmDialog'
 import { CheckIcon, CloseIcon, PersonAddIcon, TrashIcon } from '../../shared/components/Icons'
 import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
@@ -66,11 +67,10 @@ function ContactRow({
       {...longPress}
     >
       <div className="contacts-modal__avatar-wrap">
-        <img
-          src={resolveApiUrl(user.avatar_url) || '/img/default-avatar.svg'}
-          alt=""
-          className="contacts-modal__avatar"
-          loading="lazy"
+        <Avatar
+          name={user.name || user.username}
+          avatarUrl={resolveApiUrl(user.avatar_url)}
+          size="md"
         />
         {isSelected && (
           <span className="contacts-modal__select-badge" aria-hidden="true">

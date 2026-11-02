@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { forwardMessage,type ForwardPayload } from '../../shared/api/chatsApi'
+import { forwardMessage, type ForwardPayload } from '../../shared/api/chatsApi'
 import { endpoints } from '../../shared/api/endpoints'
+import { deleteGroup, leaveGroup } from '../../shared/api/groupsApi'
 import { httpPost, resolveApiUrl } from '../../shared/api/httpClient'
 import type { ChatItem, GroupMember, Message, PinnedMessage, WSMessageAction } from '../../shared/api/types'
+import { Avatar } from '../../shared/components/Avatar'
 import { ConfirmDialog } from '../../shared/components/ConfirmDialog'
-import { BookmarkIcon, PhoneIcon } from '../../shared/components/Icons'
+import { PhoneIcon } from '../../shared/components/Icons'
 import { useToast } from '../../shared/components/ToastContext'
 import { encryptMessage, type GroupRecipientKey } from '../../shared/crypto/e2e'
 import {
@@ -131,6 +133,8 @@ export function ChatWindow({
   const [confirmAction, setConfirmAction] = useState<
     | { kind: 'clear' }
     | { kind: 'delete-chat' }
+    | { kind: 'delete-group' }
+    | { kind: 'leave-group' }
     | { kind: 'delete-message'; messageId: number }
     | null
   >(null)
@@ -185,7 +189,19 @@ export function ChatWindow({
 
 
 
-  // Close kebab menu on outside click
+  const { showToast } = useToast()
+  const { callState, initiateCall } = useCallContext()
+  const accountKeyCtx = useAccountKey()
+
+  const currentGroupMember = useMemo(
+    () => (isGroup && currentUserId ? groupMembers.find((m) => m.user_id === currentUserId) : undefined),
+    [isGroup, currentUserId, groupMembers],
+  )
+  const isGroupCreator = currentGroupMember?.role === 'creator'
+  const isGroupAdmin = isGroupCreator || currentGroupMember?.role === 'admin'
+  const canClearChat = !isGroup || isGroupAdmin
+
+  // Close kebab menu on outside click or Escape
   useEffect(() => {
     if (!isMenuOpen) return
     const handleClick = (e: MouseEvent) => {
@@ -193,8 +209,17 @@ export function ChatWindow({
         setIsMenuOpen(false)
       }
     }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsMenuOpen(false)
+      }
+    }
     document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
   }, [isMenuOpen])
 
   const handleClearChat = useCallback(() => {
@@ -209,6 +234,18 @@ export function ChatWindow({
     setConfirmAction({ kind: 'delete-chat' })
   }, [chatId])
 
+  const handleDeleteGroupChat = useCallback(() => {
+    if (!chatId) return
+    setIsMenuOpen(false)
+    setConfirmAction({ kind: 'delete-group' })
+  }, [chatId])
+
+  const handleLeaveGroupChat = useCallback(() => {
+    if (!chatId) return
+    setIsMenuOpen(false)
+    setConfirmAction({ kind: 'leave-group' })
+  }, [chatId])
+
   const handleConfirmAction = useCallback(() => {
     if (!chatId || !confirmAction) return
     const action = confirmAction
@@ -217,14 +254,28 @@ export function ChatWindow({
       onClearChat?.(chatId)
     } else if (action.kind === 'delete-chat') {
       onDeleteChat?.(chatId)
+    } else if (action.kind === 'delete-group') {
+      void deleteGroup(chatId)
+        .then(() => {
+          onGroupDeleted?.()
+        })
+        .catch((err) => {
+          log.error('Failed to delete group:', err)
+          showToast('Не удалось удалить группу', 'error')
+        })
+    } else if (action.kind === 'leave-group') {
+      void leaveGroup(chatId)
+        .then(() => {
+          onGroupLeft?.()
+        })
+        .catch((err) => {
+          log.error('Failed to leave group:', err)
+          showToast('Не удалось покинуть группу', 'error')
+        })
     } else if (action.kind === 'delete-message') {
       send({ action: 'delete', chat_id: chatId, message_id: action.messageId })
     }
-  }, [chatId, confirmAction, onClearChat, onDeleteChat, send])
-
-  const { showToast } = useToast()
-  const { callState, initiateCall } = useCallContext()
-  const accountKeyCtx = useAccountKey()
+  }, [chatId, confirmAction, onClearChat, onDeleteChat, onGroupDeleted, onGroupLeft, send, showToast])
 
   const handleStartCall = useCallback(() => {
     if (!chatId || !otherUserId || !otherUsername) return
@@ -694,9 +745,21 @@ export function ChatWindow({
         <div className="chat-header">
           <div className="chat-header__title">
             {isMobile && (
-              <button className="back-btn" onClick={onBackToList} aria-label="Назад">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M19 12H5M12 19l-7-7 7-7" />
+              <button
+                type="button"
+                className="back-btn"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (chatId) {
+                    persistDraft(chatId, currentText())
+                  }
+                  onBackToList?.()
+                }}
+                aria-label="Назад к списку чатов"
+                title="Назад"
+              >
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="15 18 9 12 15 6" />
                 </svg>
               </button>
             )}
@@ -706,18 +769,12 @@ export function ChatWindow({
               onClick={handleHeaderClick}
               style={isFavorites ? { cursor: 'default' } : undefined}
             >
-              <span className="avatar avatar-sm">
-                {isFavorites ? (
-                  <span
-                    className="d-flex align-items-center justify-content-center"
-                    style={{ background: 'var(--bs-primary, #2481cc)', color: '#fff', width: '100%', height: '100%', borderRadius: '50%' }}
-                  >
-                    <BookmarkIcon size={18} />
-                  </span>
-                ) : (
-                  <img src={resolveApiUrl(displayAvatar) || '/img/default-avatar.svg'} alt="avatar" />
-                )}
-              </span>
+              <Avatar
+                name={displayName}
+                avatarUrl={resolveApiUrl(displayAvatar)}
+                size="sm"
+                isFavorites={isFavorites}
+              />
               <div className="chat-header__info">
                 <span className="chat-peer">{displayName}</span>
                 <div className="chat-header__meta">
@@ -728,7 +785,7 @@ export function ChatWindow({
                   ) : (
                     <>
                       <span className={`dot ${isOtherUserOnline ? 'online' : 'offline'}`} />
-                      <span className="chat-subtitle">
+                      <span className={`chat-subtitle${isOtherUserOnline ? ' chat-subtitle--online' : ''}`}>
                         {isOtherUserOnline ? 'В сети' : formatLastSeen(otherUserLastSeen) || 'Не в сети'}
                       </span>
                     </>
@@ -740,61 +797,122 @@ export function ChatWindow({
           <div className="chat-header__actions">
             {!isGroup && !isFavorites && otherUserId && (
               <button
+                type="button"
                 className="chat-header__call-btn"
                 onClick={handleStartCall}
                 disabled={callState.status !== 'idle' || !isOtherUserOnline}
                 aria-label="Аудиозвонок"
+                title="Аудиозвонок"
               >
-                <PhoneIcon size={20} />
+                <PhoneIcon size={18} />
               </button>
             )}
+            <button
+              type="button"
+              className={`chat-header__search-btn${isSearchOpen ? ' chat-header__search-btn--active' : ''}`}
+              onClick={() => setIsSearchOpen((v) => !v)}
+              aria-label="Поиск в чате"
+              aria-pressed={isSearchOpen}
+              title="Поиск в чате"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" aria-hidden="true">
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.35-4.35" />
+              </svg>
+            </button>
             <div className="chat-menu" ref={menuRef}>
               <button
-                className="chat-header__menu-btn"
+                type="button"
+                className={`chat-header__menu-btn${isMenuOpen ? ' chat-header__menu-btn--active' : ''}`}
                 onClick={() => setIsMenuOpen((v) => !v)}
                 aria-label="Меню чата"
+                aria-haspopup="menu"
+                aria-expanded={isMenuOpen}
+                title="Меню чата"
               >
-                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20" aria-hidden="true">
                   <circle cx="12" cy="5" r="1.5" />
                   <circle cx="12" cy="12" r="1.5" />
                   <circle cx="12" cy="19" r="1.5" />
                 </svg>
               </button>
               {isMenuOpen && (
-                <div className="chat-menu__dropdown">
-                  <button
-                    className="chat-menu__item"
-                    onClick={() => {
-                      setIsSearchOpen(true)
-                      setIsMenuOpen(false)
-                    }}
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-                      <circle cx="11" cy="11" r="8" />
-                      <path d="m21 21-4.35-4.35" />
-                    </svg>
-                    Поиск
-                  </button>
-                  <button className="chat-menu__item" onClick={handleClearChat}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-                      <path d="M12 2v6M12 22v-6M4.93 4.93l4.24 4.24M14.83 14.83l4.24 4.24M2 12h6M22 12h-6M4.93 19.07l4.24-4.24M14.83 9.17l4.24-4.24" />
-                    </svg>
-                    Очистить чат
-                  </button>
-                  {!isGroup && !isFavorites && (
-                    <button className="chat-menu__item chat-menu__item--danger" onClick={handleDeleteChat}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
-                        <polyline points="3 6 5 6 21 6" />
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                <div className="chat-menu__dropdown" role="menu" aria-label="Действия чата">
+                  {canClearChat && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="chat-menu__item"
+                      onClick={handleClearChat}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" width="16" height="16" aria-hidden="true">
+                        <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" />
+                        <path d="M22 21H7" />
+                        <path d="m5 11 9 9" />
                       </svg>
-                      Удалить чат
+                      <span>Очистить чат</span>
                     </button>
+                  )}
+                  {!isGroup && !isFavorites && (
+                    <>
+                      <div className="chat-menu__divider" role="separator" />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="chat-menu__item chat-menu__item--danger"
+                        onClick={handleDeleteChat}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" width="16" height="16" aria-hidden="true">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        </svg>
+                        <span>Удалить чат</span>
+                      </button>
+                    </>
+                  )}
+                  {isGroup && (
+                    <>
+                      {canClearChat && <div className="chat-menu__divider" role="separator" />}
+                      {isGroupCreator ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="chat-menu__item chat-menu__item--danger"
+                          onClick={handleDeleteGroupChat}
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" width="16" height="16" aria-hidden="true">
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          </svg>
+                          <span>Удалить группу</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="chat-menu__item chat-menu__item--danger"
+                          onClick={handleLeaveGroupChat}
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" width="16" height="16" aria-hidden="true">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                            <polyline points="16 17 21 12 16 7" />
+                            <line x1="21" y1="12" x2="9" y2="12" />
+                          </svg>
+                          <span>Покинуть группу</span>
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {isFavorites && (
+                    <div className="chat-menu__note" role="note">
+                      Личный чат закреплён в списке
+                    </div>
                   )}
                 </div>
               )}
             </div>
             {!isConnected && (
-              <span className="badge bg-warning text-dark">Reconnecting</span>
+              <span className="chat-header__reconnect-badge">Переподключение…</span>
             )}
           </div>
         </div>
@@ -827,6 +945,7 @@ export function ChatWindow({
           loading={loading}
           error={error}
           isFavorites={isFavorites}
+          e2eReady={e2eStatus.kind === 'ready'}
           deliveredUpTo={deliveredUpTo}
           readUpTo={readUpTo}
           onReply={handleReply}
@@ -842,34 +961,42 @@ export function ChatWindow({
 
         {e2eStatus.kind === 'key-changed' && (
           <div className="e2e-banner e2e-banner--danger" role="alert">
-            ⚠️ Ключ шифрования {e2eStatus.peers.map((p) => p.name).join(', ')} изменился. Так бывает,
-            если собеседник заново настроил шифрование, но так же выглядит и попытка
-            перехватить переписку. Сверьте код безопасности в профиле, прежде чем принимать новый ключ.
+            <div className="e2e-banner__title">
+              ⚠️ Ключ собеседника изменился
+            </div>
+            <div className="e2e-banner__body">
+              Ключ шифрования {e2eStatus.peers.map((p) => p.name).join(', ')} изменился. Так бывает,
+              если собеседник заново настроил шифрование, но так же выглядит и попытка
+              перехватить переписку. Сверьте код безопасности в профиле, прежде чем принимать новый ключ.
+            </div>
             <div className="e2e-banner__actions">
-              {!isGroup && (
-                <button type="button" className="e2e-banner__btn" onClick={() => setIsProfileModalOpen(true)}>
-                  Сверить код
-                </button>
-              )}
               {e2eStatus.peers.map((p) => (
-                <button key={p.userId} type="button" className="e2e-banner__btn" onClick={() => handleAcceptKey(p.userId)}>
+                <button
+                  key={p.userId}
+                  type="button"
+                  className="e2e-banner__btn e2e-banner__btn--primary"
+                  onClick={() => handleAcceptKey(p.userId)}
+                >
                   Принять новый ключ{e2eStatus.peers.length > 1 ? `: ${p.name}` : ''}
                 </button>
               ))}
+              {!isGroup && (
+                <button
+                  type="button"
+                  className="e2e-banner__btn e2e-banner__btn--secondary"
+                  onClick={() => setIsProfileModalOpen(true)}
+                >
+                  Сверить код
+                </button>
+              )}
+            </div>
+            <div className="e2e-banner__footer">
+              Отправка приостановлена до вашего решения.
             </div>
           </div>
         )}
         {e2eStatus.kind === 'not-ready' && (
-          <div
-            style={{
-              padding: '8px 12px',
-              background: 'rgba(255, 193, 7, 0.12)',
-              borderTop: '1px solid rgba(255, 193, 7, 0.3)',
-              color: '#ffc107',
-              fontSize: 13,
-              lineHeight: 1.4,
-            }}
-          >
+          <div className="e2e-banner e2e-banner--warning" role="status">
             🔒 Шифрование не активно: {e2eStatus.missingMemberNames.join(', ')}
             {e2eStatus.missingMemberNames.length === 1 ? ' не настроил(а)' : ' не настроили'} шифрование.
             Отправка возможна, когда{' '}
@@ -942,16 +1069,28 @@ export function ChatWindow({
         title={
           confirmAction?.kind === 'clear' ? 'Очистить чат?' :
           confirmAction?.kind === 'delete-chat' ? 'Удалить чат?' :
+          confirmAction?.kind === 'delete-group' ? 'Удалить группу?' :
+          confirmAction?.kind === 'leave-group' ? 'Покинуть группу?' :
           'Удалить сообщение?'
         }
         message={
-          confirmAction?.kind === 'clear' ? 'Все сообщения в этом чате будут удалены.' :
-          confirmAction?.kind === 'delete-chat' ? 'Это действие нельзя отменить.' :
-          undefined
+          confirmAction?.kind === 'clear'
+            ? (isFavorites
+                ? 'Все сохранённые заметки и файлы в «Избранном» будут удалены.'
+                : 'Все сообщения в этом чате будут удалены.')
+            : confirmAction?.kind === 'delete-chat'
+              ? 'Чат и вся история переписки будут удалены без возможности восстановления.'
+              : confirmAction?.kind === 'delete-group'
+                ? 'Группа и вся история сообщений будут удалены для всех участников. Это действие нельзя отменить.'
+                : confirmAction?.kind === 'leave-group'
+                  ? 'Вы выйдете из группы и перестанете получать новые сообщения.'
+                  : 'Сообщение будет удалено без возможности восстановления.'
         }
         confirmLabel={
           confirmAction?.kind === 'clear' ? 'Очистить' :
-          confirmAction?.kind === 'delete-chat' ? 'Удалить' :
+          confirmAction?.kind === 'delete-chat' ? 'Удалить чат' :
+          confirmAction?.kind === 'delete-group' ? 'Удалить группу' :
+          confirmAction?.kind === 'leave-group' ? 'Покинуть' :
           'Удалить'
         }
         variant="danger"

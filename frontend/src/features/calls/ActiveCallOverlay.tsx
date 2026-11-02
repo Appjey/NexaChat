@@ -1,4 +1,5 @@
 import { resolveApiUrl } from '../../shared/api/httpClient'
+import { Avatar } from '../../shared/components/Avatar'
 import { CloseIcon, MicIcon, MicOffIcon } from '../../shared/components/Icons'
 
 type Props = {
@@ -29,10 +30,11 @@ export function ActiveCallOverlay({ otherUsername, otherAvatar, duration, isMute
   return (
     <div className="active-call-overlay">
       <div className="active-call-overlay__info">
-        <img
+        <Avatar
+          name={otherUsername}
+          avatarUrl={resolveApiUrl(otherAvatar)}
+          size="sm"
           className="active-call-overlay__avatar"
-          src={resolveApiUrl(otherAvatar) || '/img/default-avatar.svg'}
-          alt={otherUsername}
         />
         <div className="active-call-overlay__text">
           <span className="active-call-overlay__name">{otherUsername}</span>

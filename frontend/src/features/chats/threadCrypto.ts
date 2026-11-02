@@ -53,6 +53,22 @@ async function senderKeys(
   return async (id) => keys.get(id) ?? null
 }
 
+/**
+ * True when all prerequisites to decrypt scheme=2 messages in `raw` are hydrated
+ * (both the user's accountKey and the chat's group/peer routing metadata).
+ * Prevents caching `[зашифрованное сообщение]` placeholders during a cold
+ * deep-link (`/?chat=N`) before `getCurrentUserChats()` or `AccountKey` resolves.
+ */
+export function canDecryptThread(
+  raw: Message[],
+  chat: ChatShape,
+  accountKey: CryptoKey | null,
+): boolean {
+  if (!raw.some((m) => m.scheme === 2)) return true
+  if (!accountKey || !chat) return false
+  return Boolean(chat.is_group || chat.other_user_id)
+}
+
 /** Decrypt a thread as returned by GET /api/chats/:id/messages. */
 export async function decryptMessages(raw: Message[], chat: ChatShape, accountKey: CryptoKey | null): Promise<Message[]> {
   const keyFor = await senderKeys(chat, raw.filter((m) => m.scheme === 2).map((m) => m.user_id), accountKey)

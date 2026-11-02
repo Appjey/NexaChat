@@ -1,4 +1,5 @@
 import { resolveApiUrl } from '../../shared/api/httpClient'
+import { Avatar } from '../../shared/components/Avatar'
 import { CloseIcon, PhoneIcon } from '../../shared/components/Icons'
 import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
@@ -19,7 +20,11 @@ export function IncomingCallModal({ callerName, callerAvatar, onAccept, onReject
       <div className="incoming-call-modal" role="dialog" aria-modal="true">
         <div className="incoming-call-modal__pulse" />
         <div className="incoming-call-modal__avatar">
-          <img src={resolveApiUrl(callerAvatar) || '/img/default-avatar.svg'} alt={callerName} />
+          <Avatar
+            name={callerName}
+            avatarUrl={resolveApiUrl(callerAvatar)}
+            size="xl"
+          />
         </div>
         <div className="incoming-call-modal__name">{callerName}</div>
         <div className="incoming-call-modal__label">Входящий звонок...</div>

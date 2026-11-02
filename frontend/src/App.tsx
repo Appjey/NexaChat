@@ -16,10 +16,16 @@ export type OutletContextType = {
   menuOpen: boolean
   setMenuOpen: (open: boolean) => void
   onChatSelectedRef: React.MutableRefObject<((chatId: number) => void) | null>
+  openContactsModal?: () => void
+  openSettingsModal?: () => void
+  openCreateGroupModal?: () => void
 }
 
 export default function AppLayout() {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [contactsModalOpen, setContactsModalOpen] = useState(false)
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false)
+  const [createGroupModalOpen, setCreateGroupModalOpen] = useState(false)
   const onChatSelectedRef = useRef<((chatId: number) => void) | null>(null)
   const { callState, acceptCall, rejectCall, hangup, toggleMute } = useCallContext()
   const { user, loading } = useAuthContext()
@@ -35,6 +41,18 @@ export default function AppLayout() {
 
   const handleChatSelected = useCallback((chatId: number) => {
     onChatSelectedRef.current?.(chatId)
+  }, [])
+
+  const openContactsModal = useCallback(() => {
+    setContactsModalOpen(true)
+  }, [])
+
+  const openSettingsModal = useCallback(() => {
+    setSettingsModalOpen(true)
+  }, [])
+
+  const openCreateGroupModal = useCallback(() => {
+    setCreateGroupModalOpen(true)
   }, [])
 
   const handleAcceptCall = useCallback(() => {
@@ -61,9 +79,30 @@ export default function AppLayout() {
       )}
 
       <div className={`telegram-layout${hasActiveCall ? ' has-active-call' : ''}`}>
-        <SlideMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} onChatSelected={handleChatSelected} />
+        <SlideMenu
+          isOpen={menuOpen}
+          onClose={() => setMenuOpen(false)}
+          onChatSelected={handleChatSelected}
+          contactsModalOpen={contactsModalOpen}
+          onContactsModalChange={setContactsModalOpen}
+          settingsModalOpen={settingsModalOpen}
+          onSettingsModalChange={setSettingsModalOpen}
+          createGroupModalOpen={createGroupModalOpen}
+          onCreateGroupModalChange={setCreateGroupModalOpen}
+        />
         <div className="telegram-main">
-          <Outlet context={{ menuOpen, setMenuOpen, onChatSelectedRef } satisfies OutletContextType} />
+          <Outlet
+            context={
+              {
+                menuOpen,
+                setMenuOpen,
+                onChatSelectedRef,
+                openContactsModal,
+                openSettingsModal,
+                openCreateGroupModal,
+              } satisfies OutletContextType
+            }
+          />
         </div>
 
         {callState.status === 'incoming' && (

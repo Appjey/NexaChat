@@ -57,6 +57,7 @@ type Props = {
   message: Message
   isOwn: boolean
   senderName: string
+  showSenderName?: boolean
   senderColor?: string
   currentUserId?: number
   // Read-receipt state for our own 1-on-1 messages (undefined = no tick shown).
@@ -285,7 +286,12 @@ function AttachmentView({ att, senderUserId, onImageClick }: AttachmentViewProps
   return (
     <>
       <a href={blobUrl} download={fileName} className="attachment-document" onClick={handleDocClick}>
-        <span className="attachment-icon">📄</span>
+        <span className="attachment-icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+          </svg>
+        </span>
         <div className="attachment-info">
           <span className="attachment-name">{fileName}</span>
           <span className="attachment-size">{formatFileSize(att.file_size)}</span>
@@ -309,6 +315,7 @@ function MessageItemInner({
   message,
   isOwn,
   senderName,
+  showSenderName = false,
   senderColor,
   currentUserId,
   receiptStatus,
@@ -357,38 +364,71 @@ function MessageItemInner({
   // flicker) because the menu width/height depend on which items show — the
   // old hardcoded 150×200 estimate let wide/tall menus overflow.
   const menuRef = useRef<HTMLDivElement>(null)
+  const didAutoFocusMenuRef = useRef(false)
   useLayoutEffect(() => {
-    if (!contextMenu.visible) return
+    if (!contextMenu.visible) {
+      didAutoFocusMenuRef.current = false
+      return
+    }
     const el = menuRef.current
     if (!el) return
-    const padding = 8
-    const { width, height } = el.getBoundingClientRect()
-    const x = Math.max(padding, Math.min(contextMenu.x, window.innerWidth - width - padding))
-    const y = Math.max(padding, Math.min(contextMenu.y, window.innerHeight - height - padding))
+    const padding = 12
+    const rect = el.getBoundingClientRect()
+    const width = Math.max(el.offsetWidth, rect.width)
+    const height = Math.max(el.offsetHeight, rect.height)
+    const viewportW = window.visualViewport?.width ?? window.innerWidth
+    const viewportH = window.visualViewport?.height ?? window.innerHeight
+    const maxX = Math.max(padding, viewportW - width - padding)
+    const maxY = Math.max(padding, viewportH - height - padding)
+    const x = Math.max(padding, Math.min(contextMenu.x, maxX))
+    const y = Math.max(padding, Math.min(contextMenu.y, maxY))
     if (x !== contextMenu.x || y !== contextMenu.y) {
       setContextMenu((prev) => ({ ...prev, x, y }))
     }
+    if (!didAutoFocusMenuRef.current) {
+      didAutoFocusMenuRef.current = true
+      const firstItem = el.querySelector<HTMLButtonElement>('[role="menuitem"]')
+      firstItem?.focus({ preventScroll: true })
+    }
   }, [contextMenu.visible, contextMenu.x, contextMenu.y])
+
+  const focusComposerInput = useCallback(() => {
+    requestAnimationFrame(() => {
+      const input = document.getElementById('message') as HTMLTextAreaElement | null
+      if (input && !input.disabled) {
+        input.focus({ preventScroll: true })
+        const len = input.value.length
+        input.setSelectionRange(len, len)
+      }
+    })
+  }, [])
 
   const handleReply = useCallback(() => {
     onReply(message.id)
     closeContextMenu()
-  }, [message.id, onReply, closeContextMenu])
+    focusComposerInput()
+  }, [message.id, onReply, closeContextMenu, focusComposerInput])
 
   const handleEdit = useCallback(() => {
     onEdit(message.id, message.text)
     closeContextMenu()
-  }, [message.id, message.text, onEdit, closeContextMenu])
+    focusComposerInput()
+  }, [message.id, message.text, onEdit, closeContextMenu, focusComposerInput])
 
   const handleDelete = useCallback(() => {
     onDelete(message.id)
     closeContextMenu()
   }, [message.id, onDelete, closeContextMenu])
 
+  const copyableText = message.text.trim()
+  const canEditMessage = isOwn && message.scheme === 2
+
   const handleCopyText = useCallback(() => {
-    navigator.clipboard.writeText(message.text)
+    if (copyableText) {
+      void navigator.clipboard?.writeText(copyableText)
+    }
     closeContextMenu()
-  }, [message.text, closeContextMenu])
+  }, [copyableText, closeContextMenu])
 
   const handleForward = useCallback(() => {
     onForward(message.id)
@@ -405,26 +445,78 @@ function MessageItemInner({
     closeContextMenu()
   }, [message.id, onUnpin, closeContextMenu])
 
-  // Close context menu on click outside or scroll
+  const moveMenuFocus = useCallback((key: string) => {
+    const items = menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
+    if (!items || items.length === 0) return
+    const list = Array.from(items)
+    const currentIndex = list.indexOf(document.activeElement as HTMLButtonElement)
+    let nextIndex = 0
+    if (key === 'Home') {
+      nextIndex = 0
+    } else if (key === 'End') {
+      nextIndex = list.length - 1
+    } else if (key === 'ArrowDown') {
+      nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % list.length
+    } else if (key === 'ArrowUp') {
+      nextIndex = currentIndex <= 0 ? list.length - 1 : currentIndex - 1
+    }
+    list[nextIndex]?.focus({ preventScroll: true })
+  }, [])
+
+  const handleMenuKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        closeContextMenu()
+        return
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+        e.preventDefault()
+        e.stopPropagation()
+        moveMenuFocus(e.key)
+      }
+    },
+    [closeContextMenu, moveMenuFocus],
+  )
+
+  // Close context menu on click outside, scroll, resize, or Escape, and allow
+  // arrow-key navigation even if focus hasn't entered the menu yet.
   useEffect(() => {
     if (!contextMenu.visible) return
 
     const handleClickOutside = () => closeContextMenu()
     const handleScroll = () => closeContextMenu()
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        closeContextMenu()
+        return
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+        if (!menuRef.current?.contains(document.activeElement)) {
+          e.preventDefault()
+          moveMenuFocus(e.key)
+        }
+      }
+    }
 
     document.addEventListener('click', handleClickOutside)
     document.addEventListener('scroll', handleScroll, true)
+    document.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('resize', handleClickOutside)
 
     return () => {
       document.removeEventListener('click', handleClickOutside)
       document.removeEventListener('scroll', handleScroll, true)
+      document.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('resize', handleClickOutside)
       // Release the single open slot if we still own it (don't clobber a menu
       // another bubble just opened — it has already reclaimed the slot).
       if (activeContextMenuCloser === closeContextMenu) {
         activeContextMenuCloser = null
       }
     }
-  }, [contextMenu.visible, closeContextMenu])
+  }, [contextMenu.visible, closeContextMenu, moveMenuFocus])
 
   const emojiOnly = !message.is_deleted && isEmojiOnly(message.text)
 
@@ -447,7 +539,13 @@ function MessageItemInner({
         onContextMenu={handleContextMenu}
       >
         {isPinned && (
-          <span className="message-pin-indicator" title="Закреплено">📌</span>
+          <div className="message-pin-indicator" title="Закреплено" aria-label="Закреплено">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="17" x2="12" y2="22" />
+              <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
+            </svg>
+            <span>Закреплено</span>
+          </div>
         )}
         {forwardedFromId != null && !message.is_deleted && (
           <div className="forwarded-label">
@@ -480,23 +578,11 @@ function MessageItemInner({
           </div>
         )}
 
-        <div className="message__header">
-          {/* For forwarded messages the "↪ Переслано от X" label above carries the
-              attribution (the original author), so the sender name ("Вы"/forwarder)
-              would be redundant — hide it, Telegram-style. */}
-          {forwardedFromId === null && (
+        {showSenderName && forwardedFromId === null && (
+          <div className="message__header">
             <span className="message-sender" style={senderColor ? { color: senderColor } : undefined}>{senderName}</span>
-          )}
-          <span className="message-time">{formatMessageTime(message.created_at)}</span>
-          {receiptStatus && (
-            <span
-              className={`message-receipt message-receipt--${receiptStatus}`}
-              aria-label={receiptStatus === 'read' ? 'Прочитано' : receiptStatus === 'delivered' ? 'Доставлено' : 'Отправлено'}
-            >
-              {receiptStatus === 'sent' ? <CheckIcon size={14} /> : <DoubleCheckIcon size={15} />}
-            </span>
-          )}
-        </div>
+          </div>
+        )}
 
         <div className="message__content">
           {message.is_deleted ? (
@@ -530,42 +616,95 @@ function MessageItemInner({
             </>
           )}
         </div>
+
+        <div className="message__meta">
+          <span className="message-time">{formatMessageTime(message.created_at)}</span>
+          {receiptStatus && (
+            <span
+              className={`message-receipt message-receipt--${receiptStatus}`}
+              aria-label={receiptStatus === 'read' ? 'Прочитано' : receiptStatus === 'delivered' ? 'Доставлено' : 'Отправлено'}
+            >
+              {receiptStatus === 'sent' ? <CheckIcon size={14} /> : <DoubleCheckIcon size={15} />}
+            </span>
+          )}
+        </div>
       </div>
 
       {contextMenu.visible && (
         <div
           ref={menuRef}
           className="context-menu"
+          role="menu"
+          aria-label="Действия с сообщением"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(e) => e.stopPropagation()}
+          onKeyDown={handleMenuKeyDown}
         >
-          <div className="context-menu-item" onClick={handleReply}>
-            ↩ Ответить
-          </div>
-          <div className="context-menu-item" onClick={handleForward}>
-            ↪ Переслать
-          </div>
-          <div className="context-menu-item" onClick={handleCopyText}>
-            📋 Копировать
-          </div>
+          <button type="button" role="menuitem" className="context-menu-item" onClick={handleReply}>
+            <svg className="context-menu-item__icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="9 17 4 12 9 7" />
+              <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+            </svg>
+            <span>Ответить</span>
+          </button>
+          <button type="button" role="menuitem" className="context-menu-item" onClick={handleForward}>
+            <svg className="context-menu-item__icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="15 17 20 12 15 7" />
+              <path d="M4 18v-2a4 4 0 0 1 4-4h12" />
+            </svg>
+            <span>Переслать</span>
+          </button>
+          {Boolean(copyableText) && (
+            <button type="button" role="menuitem" className="context-menu-item" onClick={handleCopyText}>
+              <svg className="context-menu-item__icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+              <span>Копировать</span>
+              <span className="context-menu-item__shortcut" aria-hidden="true">⌘C</span>
+            </button>
+          )}
           {canPin && !isPinned && (
-            <div className="context-menu-item" onClick={handlePin}>
-              📌 Закрепить
-            </div>
+            <button type="button" role="menuitem" className="context-menu-item" onClick={handlePin}>
+              <svg className="context-menu-item__icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="12" y1="17" x2="12" y2="22" />
+                <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
+              </svg>
+              <span>Закрепить</span>
+            </button>
           )}
           {canPin && isPinned && (
-            <div className="context-menu-item" onClick={handleUnpin}>
-              📌 Открепить
-            </div>
+            <button type="button" role="menuitem" className="context-menu-item" onClick={handleUnpin}>
+              <svg className="context-menu-item__icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="2" y1="2" x2="22" y2="22" />
+                <line x1="12" y1="17" x2="12" y2="22" />
+                <path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h12" />
+                <path d="M15 9.34V6h1a2 2 0 0 0 0-4H7.89" />
+              </svg>
+              <span>Открепить</span>
+            </button>
           )}
           {isOwn && (
             <>
-              <div className="context-menu-item" onClick={handleEdit}>
-                ✏️ Редактировать
-              </div>
-              <div className="context-menu-item danger" onClick={handleDelete}>
-                🗑 Удалить
-              </div>
+              {canEditMessage && (
+                <button type="button" role="menuitem" className="context-menu-item" onClick={handleEdit}>
+                  <svg className="context-menu-item__icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                  </svg>
+                  <span>Редактировать</span>
+                </button>
+              )}
+              <div className="context-menu-divider" role="separator" />
+              <button type="button" role="menuitem" className="context-menu-item danger" onClick={handleDelete}>
+                <svg className="context-menu-item__icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  <line x1="10" y1="11" x2="10" y2="17" />
+                  <line x1="14" y1="11" x2="14" y2="17" />
+                </svg>
+                <span>Удалить</span>
+              </button>
             </>
           )}
         </div>

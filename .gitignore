@@ -23,6 +23,18 @@
 !CHANGELOG.md
 !ops/**/*.md
 
+# One-off implementation and review reports (keep operational docs in ops/)
+ops/*-IMPLEMENTATION.md
+ops/LOCAL-*-PREVIEW.md
+ops/*-POLISH.md
+
+# Keep only the final review board; working concepts and screenshots stay local
+design/rebrand/*
+!design/rebrand/menu-redesign/
+design/rebrand/menu-redesign/*
+!design/rebrand/menu-redesign/menu-redesign-board.png
+!design/rebrand/menu-redesign/menu-redesign-board.svg
+
 # Backend
 backend/.env
 backend/uploads/

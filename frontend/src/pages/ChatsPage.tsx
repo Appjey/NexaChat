@@ -9,7 +9,7 @@ import { ChatList } from '../features/chats/ChatList'
 import { readCachedChats, writeCachedChats } from '../features/chats/chatListCache'
 import { ChatWindow } from '../features/chats/ChatWindow'
 import { ForwardModal } from '../features/chats/ForwardModal'
-import { decryptMessages, decryptPins, selectScheme2Payload } from '../features/chats/threadCrypto'
+import { canDecryptThread, decryptMessages, decryptPins, selectScheme2Payload } from '../features/chats/threadCrypto'
 import { HamburgerButton } from '../features/menu/HamburgerButton'
 import { UpdateBanner } from '../features/updates/UpdateBanner'
 import { clearChat, deleteChat, getChatMessages, getCurrentUserChats, getPinnedMessages, pinMessage, unpinMessage } from '../shared/api/chatsApi'
@@ -30,10 +30,17 @@ import { subscribePendingChat } from '../shared/pendingChat'
 import { subscribePendingShare } from '../shared/pendingShare'
 
 export default function ChatsPage() {
-  const { setMenuOpen, onChatSelectedRef } = useOutletContext<OutletContextType>()
+  const {
+    menuOpen,
+    setMenuOpen,
+    onChatSelectedRef,
+    openContactsModal,
+    openSettingsModal,
+  } = useOutletContext<OutletContextType>()
   const { user } = useAuthContext()
   const callContext = useCallContext()
   const accountKeyCtx = useAccountKey()
+  const accountKeyReady = accountKeyCtx.state.status === 'ready'
   // Snapshot the current account_key in a ref so the WS event handler (which captures
   // closures with stale `accountKeyCtx`) always sees the latest value. The handler
   // re-renders on `accountKeyCtx.state` would otherwise unsubscribe/resubscribe the
@@ -72,6 +79,8 @@ export default function ChatsPage() {
   const [chats, setChats] = useState<ChatItem[]>(() => readCachedChats())
   const [messages, setMessages] = useState<Message[]>([])
   const [activeChatId, setActiveChatId] = useState<number | null>(null)
+  const [lastSelectedChatId, setLastSelectedChatId] = useState<number | null>(null)
+  const [chatFilter, setChatFilter] = useState<'all' | 'unread'>('all')
   // Text shared in via the Android share-sheet; non-null opens the picker.
   const [shareText, setShareText] = useState<string | null>(null)
   // Bumped to make ChatWindow re-read a draft when sharing into the open chat.
@@ -98,6 +107,7 @@ export default function ChatsPage() {
   const messagesRef = useRef<Message[]>([])
   const loadChatsRef = useRef<() => void>(() => {})
   const loadMessagesRef = useRef<(chatId: number) => void>(() => {})
+  const loadMessagesSeqRef = useRef(0)
   const loadPinnedRef = useRef<(chatId: number) => void>(() => {})
   const messageCacheRef = useRef<Map<number, Message[]>>(new Map())
   const handleCallEventRef = useRef(callContext.handleCallEvent)
@@ -123,9 +133,8 @@ export default function ChatsPage() {
 
   useEffect(() => {
     const computeIsMobile = () => {
-      const byWidth = window.matchMedia('(max-width: 768px)').matches
-      const byUA = /Mobi|Android|iPhone|iPad/i.test(window.navigator.userAgent)
-      setIsMobile(byWidth || byUA)
+      const byWidth = window.matchMedia('(max-width: 767px)').matches
+      setIsMobile(byWidth)
     }
 
     computeIsMobile()
@@ -522,6 +531,12 @@ export default function ChatsPage() {
       setChatsError(null)
       if (!haveData) setLoadingChats(true)
       const data = await getCurrentUserChats()
+      // Seed chatsRef with raw chat metadata immediately so a concurrent cold
+      // deep-link loadMessages(?chat=N) can resolve is_group / other_user_id
+      // without waiting for all sidebar preview decryptions below.
+      if (chatsRef.current.length === 0) {
+        chatsRef.current = data
+      }
       // Decrypt the last-message preview for any scheme=2 chat where the server
       // attached the raw ciphertext + sender_id. 1-on-1: chat_key derived from
       // peer's public_key (sender is either us or peer, both → same key). Group:
@@ -574,6 +589,7 @@ export default function ChatsPage() {
   }, [onChatSelectedRef, loadChats])
 
   const loadMessages = useCallback(async (chatId: number) => {
+    const seq = ++loadMessagesSeqRef.current
     // Serve from cache instantly if available
     let cached = messageCacheRef.current.get(chatId)
     if (!cached) {
@@ -597,14 +613,20 @@ export default function ChatsPage() {
       setMessagesError(null)
       const result = await getChatMessages(chatId)
       const raw = result.messages
+      const chatMeta = chatsRef.current.find((c) => c.id === chatId)
+      const accountKey = accountKeyRef.current
+      const canDecrypt = canDecryptThread(raw, chatMeta, accountKey)
       // For 1-on-1: derive one chat_key from the peer's public_key and decrypt
       // every scheme=2 message with it. For groups: server already resolved
       // each row's per-user envelope into text/iv, but each message may have a
       // different sender, so we derive a chat_key per unique sender_id. The
       // peerKeys cache makes the N lookups effectively free after the first.
-      const data = await decryptMessages(raw, chatsRef.current.find((c) => c.id === chatId), accountKeyRef.current)
-      messageCacheRef.current.set(chatId, data)
-      saveCachedMessages(chatId, data)
+      const data = await decryptMessages(raw, chatMeta, accountKey)
+      if (seq !== loadMessagesSeqRef.current) return
+      if (canDecrypt) {
+        messageCacheRef.current.set(chatId, data)
+        saveCachedMessages(chatId, data)
+      }
       setMessages(data)
 
       // Seed the peer's read-receipt pointers from the server so our sent
@@ -720,11 +742,24 @@ export default function ChatsPage() {
     }
   }, [searchParams, setSearchParams])
 
+  const activeChat = useMemo(
+    () => chats.find((chat) => chat.id === activeChatId),
+    [activeChatId, chats]
+  )
+  // Primitive key representing whether the active chat's E2E routing metadata
+  // (group vs 1-on-1 peer id) has hydrated. When cold-navigating to /?chat=N,
+  // activeChatId is set before loadChats() finishes; watching this key ensures
+  // loadMessages/loadPinned re-run as soon as chat metadata + accountKey arrive.
+  const activeChatDecryptKey = activeChat
+    ? `${activeChat.id}:${activeChat.is_group ? 'g' : activeChat.other_user_id ?? 'u'}`
+    : null
+
   useEffect(() => {
     loadChats()
-  }, [loadChats])
+  }, [loadChats, accountKeyReady])
 
-  // Load messages, pins, and group info when active chat changes
+  // Load messages, pins, and group info when active chat changes or when its
+  // metadata / E2E account key finishes hydrating on a cold deep-link.
   useEffect(() => {
     if (activeChatId) {
       loadMessages(activeChatId)
@@ -740,15 +775,15 @@ export default function ChatsPage() {
 
       // Clear unread count locally
       setChats((prevChats) =>
-        prevChats.map((c) =>
-          c.id === activeChatId ? { ...c, unread_count: 0 } : c
-        )
+        prevChats.some((c) => c.id === activeChatId && (c.unread_count ?? 0) > 0)
+          ? prevChats.map((c) => (c.id === activeChatId ? { ...c, unread_count: 0 } : c))
+          : prevChats
       )
     } else {
       setGroupInfo(null)
       setPinnedMessages([])
     }
-  }, [activeChatId, loadMessages, loadPinned])
+  }, [activeChatId, activeChatDecryptKey, accountKeyReady, loadMessages, loadPinned])
 
   // Clear local tray notifications for the chat the user just opened. The
   // server-side mark_read (which also dispatches dismiss-pushes to OTHER
@@ -850,11 +885,6 @@ export default function ChatsPage() {
     loadChats()
   }, [activeChatId, loadMessages, loadPinned, loadChats])
 
-  const activeChat = useMemo(
-    () => chats.find((chat) => chat.id === activeChatId),
-    [activeChatId, chats]
-  )
-
   // Load presence status when active chat changes (1-on-1 only)
   const activeChatOtherUserId = activeChat?.other_user_id
   const activeChatIsGroup = activeChat?.is_group
@@ -904,17 +934,41 @@ export default function ChatsPage() {
     return member?.role === 'admin' || member?.role === 'creator'
   }, [activeChat, user, groupInfo])
 
-  // Filter chats by search query
+  useEffect(() => {
+    if (activeChatId !== null) {
+      setLastSelectedChatId(activeChatId)
+    }
+  }, [activeChatId])
+
+  const unreadChatsCount = useMemo(
+    () => chats.filter((c) => c.unread_count > 0).length,
+    [chats],
+  )
+
+  // Filter chats by search query and unread pill
   const filteredChats = useMemo(() => {
-    if (!searchQuery.trim()) return chats
+    let result = chats
+    if (chatFilter === 'unread') {
+      result = result.filter((chat) => chat.unread_count > 0)
+    }
+    if (!searchQuery.trim()) return result
     const query = searchQuery.toLowerCase()
-    return chats.filter((chat) => {
+    return result.filter((chat) => {
+      if (chat.is_favorites) {
+        return 'избранное'.includes(query)
+      }
       if (chat.is_group) {
         return (chat.group_name || '').toLowerCase().includes(query)
       }
       return (chat.other_user_name || '').toLowerCase().includes(query)
     })
-  }, [chats, searchQuery])
+  }, [chats, searchQuery, chatFilter])
+
+  const hasActiveFilter = Boolean(searchQuery.trim()) || chatFilter === 'unread'
+  const handleResetFilter = useCallback(() => {
+    setSearchQuery('')
+    setChatFilter('all')
+  }, [])
 
   return (
     <div className="chats-page-shell">
@@ -922,67 +976,208 @@ export default function ChatsPage() {
           the inner flex sizing. Renders null when no update is offered. */}
       <UpdateBanner />
       <div className={`telegram-layout${isMobile && activeChatId ? ' chat-active' : ''}`}>
-      {/* Sidebar with chat list */}
-      <div className="telegram-sidebar">
-        <div className="telegram-sidebar__header">
-          <HamburgerButton onClick={() => setMenuOpen(true)} />
-          <div className="telegram-sidebar__search">
-            <input
-              type="search"
-              className="form-control"
-              placeholder="Поиск..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+        {/* Sidebar with chat list */}
+        <div className="telegram-sidebar">
+          <div className="telegram-sidebar__header">
+            <div className="telegram-sidebar__top-row">
+              <HamburgerButton isOpen={menuOpen} onClick={() => setMenuOpen(true)} />
+              <span className="telegram-sidebar__brand">NexaChat</span>
+              <button
+                type="button"
+                className="telegram-sidebar__compose-btn"
+                onClick={() => openContactsModal?.()}
+                aria-label="Новый чат"
+                title="Новый чат"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="telegram-sidebar__search">
+              <span className="telegram-sidebar__search-icon" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+              </span>
+              <input
+                type="search"
+                className="form-control telegram-sidebar__search-input"
+                placeholder="Поиск по чатам"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  className="telegram-sidebar__search-clear"
+                  onClick={() => setSearchQuery('')}
+                  aria-label="Очистить поиск"
+                  title="Очистить поиск"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            <div className="telegram-sidebar__filters" role="tablist" aria-label="Фильтр чатов">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={chatFilter === 'all'}
+                className={`telegram-filter-pill${chatFilter === 'all' ? ' active' : ''}`}
+                onClick={() => setChatFilter('all')}
+              >
+                Все
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={chatFilter === 'unread'}
+                className={`telegram-filter-pill${chatFilter === 'unread' ? ' active' : ''}`}
+                onClick={() => setChatFilter('unread')}
+              >
+                Непрочитанные
+                {unreadChatsCount > 0 && (
+                  <span className="telegram-filter-pill__count">{unreadChatsCount}</span>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {!isConnected && !loadingChats && (
+            <div className="telegram-sidebar__offline" role="status">
+              <div className="telegram-sidebar__offline-text">
+                <strong>Нет соединения</strong> · Черновик сохранён. Переподключение автоматически.
+              </div>
+              <button
+                type="button"
+                className="telegram-sidebar__offline-retry"
+                onClick={() => loadChats()}
+              >
+                Обновить список
+              </button>
+            </div>
+          )}
+
+          <div className="telegram-sidebar__content">
+            <ChatList
+              chats={filteredChats}
+              activeChatId={(activeChatId ?? lastSelectedChatId) ?? undefined}
+              onSelect={(id) => {
+                setLastSelectedChatId(id)
+                setActiveChatId(id)
+              }}
+              loading={loadingChats}
+              error={chatsError}
+              hasActiveFilter={hasActiveFilter}
+              onResetFilter={handleResetFilter}
+              onlineUsers={onlineUsers}
             />
           </div>
+
+          <div className="telegram-sidebar__footer">
+            <span
+              className={`telegram-sidebar__status-dot${isConnected ? ' is-online' : ' is-offline'}`}
+              aria-hidden="true"
+            />
+            <span>{isConnected ? '✓ Подключено' : 'Нет соединения'}</span>
+          </div>
+
+          {/* Mobile floating New Chat overlay button — separate sibling outside scrolling list */}
+          <button
+            type="button"
+            className="telegram-mobile-fab"
+            onClick={() => openContactsModal?.()}
+            aria-label="Новый чат"
+            title="Новый чат"
+            tabIndex={menuOpen ? -1 : 0}
+            aria-hidden={menuOpen ? 'true' : undefined}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+            </svg>
+          </button>
+
+          {/* Mobile bottom navigation — present on mobile chat list only, never inside dialog */}
+          <nav className="telegram-mobile-nav" aria-label="Нижняя навигация">
+            <button
+              type="button"
+              className="telegram-mobile-nav__item active"
+              onClick={() => setActiveChatId(null)}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+              <span>Чаты</span>
+            </button>
+            <button
+              type="button"
+              className="telegram-mobile-nav__item"
+              onClick={() => openContactsModal?.()}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <line x1="19" y1="8" x2="19" y2="14" />
+                <line x1="22" y1="11" x2="16" y2="11" />
+              </svg>
+              <span>Контакты</span>
+            </button>
+            <button
+              type="button"
+              className="telegram-mobile-nav__item"
+              onClick={() => openSettingsModal?.()}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+              <span>Настройки</span>
+            </button>
+          </nav>
         </div>
-        <div className="telegram-sidebar__content">
-          <ChatList
-            chats={filteredChats}
-            activeChatId={activeChatId ?? undefined}
-            onSelect={(id) => setActiveChatId(id)}
-            loading={loadingChats}
-            error={chatsError}
+
+        {/* Main chat area */}
+        <div className="telegram-chat-area">
+          <ChatWindow
+            chatId={activeChatId ?? undefined}
+            onE2EKeyAccepted={handleE2EKeyAccepted}
+            messages={messages}
+            otherUserId={activeChat?.other_user_id}
+            otherUsername={activeChat?.is_favorites ? 'Избранное' : activeChat?.other_user_name}
+            otherAvatar={activeChat?.avatar_url}
+            isFavorites={activeChat?.is_favorites}
+            currentUserId={user?.id}
+            loading={loadingMessages}
+            error={messagesError}
+            isConnected={isConnected}
+            isOtherUserOnline={isOtherUserOnline}
+            otherUserLastSeen={otherUserLastSeen}
+            deliveredUpTo={activeChatReceipt?.delivered ?? 0}
+            readUpTo={activeChatReceipt?.read ?? 0}
+            send={send}
+            isMobile={isMobile}
+            onBackToList={() => setActiveChatId(null)}
+            onClearChat={handleClearChat}
+            onDeleteChat={handleDeleteChat}
+            isGroup={activeChat?.is_group}
+            groupName={activeChat?.is_group ? (groupInfo?.name || activeChat?.group_name) : undefined}
+            groupMembers={groupInfo?.members}
+            onGroupUpdated={handleGroupUpdated}
+            onGroupDeleted={handleGroupDeleted}
+            onGroupLeft={handleGroupLeft}
+            pinnedMessages={pinnedMessages}
+            canPin={canPin}
+            onPinMessage={handlePinMessage}
+            onUnpinMessage={handleUnpinMessage}
+            draftReloadKey={draftReloadKey}
           />
         </div>
-      </div>
-
-      {/* Main chat area */}
-      <div className="telegram-chat-area">
-        <ChatWindow
-          chatId={activeChatId ?? undefined}
-          onE2EKeyAccepted={handleE2EKeyAccepted}
-          messages={messages}
-          otherUserId={activeChat?.other_user_id}
-          otherUsername={activeChat?.is_favorites ? 'Избранное' : activeChat?.other_user_name}
-          otherAvatar={activeChat?.avatar_url}
-          isFavorites={activeChat?.is_favorites}
-          currentUserId={user?.id}
-          loading={loadingMessages}
-          error={messagesError}
-          isConnected={isConnected}
-          isOtherUserOnline={isOtherUserOnline}
-          otherUserLastSeen={otherUserLastSeen}
-          deliveredUpTo={activeChatReceipt?.delivered ?? 0}
-          readUpTo={activeChatReceipt?.read ?? 0}
-          send={send}
-          isMobile={isMobile}
-          onBackToList={() => setActiveChatId(null)}
-          onClearChat={handleClearChat}
-          onDeleteChat={handleDeleteChat}
-          isGroup={activeChat?.is_group}
-          groupName={activeChat?.is_group ? (groupInfo?.name || activeChat?.group_name) : undefined}
-          groupMembers={groupInfo?.members}
-          onGroupUpdated={handleGroupUpdated}
-          onGroupDeleted={handleGroupDeleted}
-          onGroupLeft={handleGroupLeft}
-          pinnedMessages={pinnedMessages}
-          canPin={canPin}
-          onPinMessage={handlePinMessage}
-          onUnpinMessage={handleUnpinMessage}
-          draftReloadKey={draftReloadKey}
-        />
-      </div>
       </div>
 
       {/* Chat-picker for content shared in via the Android share-sheet. */}

@@ -73,7 +73,7 @@ export function LazyVaultModal() {
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0, 0, 0, 0.7)',
+        background: 'var(--bg-scrim, rgba(13, 16, 23, 0.72))',
         backdropFilter: 'blur(4px)',
         zIndex: 9999,
         display: 'flex',
@@ -85,19 +85,20 @@ export function LazyVaultModal() {
       <form
         onSubmit={handleSubmit}
         style={{
-          background: '#1e1e1e',
-          borderRadius: 12,
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border-color)',
+          borderRadius: 16,
           padding: '24px 28px',
           maxWidth: 420,
           width: '100%',
-          color: '#fff',
-          boxShadow: '0 10px 40px rgba(0, 0, 0, 0.5)',
+          color: 'var(--text-primary)',
+          boxShadow: 'var(--shadow-lg)',
         }}
       >
-        <h3 style={{ margin: '0 0 12px', fontSize: 18, fontWeight: 600 }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: 18, fontWeight: 700, fontFamily: 'var(--font-display)' }}>
           🔒 Активация шифрования
         </h3>
-        <p style={{ margin: '0 0 16px', fontSize: 14, lineHeight: 1.5, color: '#bbb' }}>
+        <p style={{ margin: '0 0 16px', fontSize: 14, lineHeight: 1.5, color: 'var(--text-secondary)' }}>
           Для безопасной переписки нужно активировать сквозное шифрование на этом
           устройстве. Введите ваш пароль ещё раз —{' '}
           {isWebBrowser()
@@ -111,35 +112,18 @@ export function LazyVaultModal() {
           placeholder="Пароль"
           autoFocus
           disabled={busy}
+          className="form-control"
           style={{
-            width: '100%',
-            padding: '10px 12px',
-            borderRadius: 8,
-            border: '1px solid #444',
-            background: '#2a2a2a',
-            color: '#fff',
-            fontSize: 14,
-            boxSizing: 'border-box',
             marginBottom: 12,
           }}
         />
         {error && (
-          <div style={{ color: '#f66', fontSize: 13, marginBottom: 12 }}>{error}</div>
+          <div style={{ color: 'var(--color-danger)', fontSize: 13, marginBottom: 12 }}>{error}</div>
         )}
         <button
           type="submit"
           disabled={busy || !password}
-          style={{
-            width: '100%',
-            padding: '10px 16px',
-            borderRadius: 8,
-            border: 'none',
-            background: busy || !password ? '#444' : '#3b82f6',
-            color: '#fff',
-            fontSize: 14,
-            fontWeight: 500,
-            cursor: busy || !password ? 'not-allowed' : 'pointer',
-          }}
+          className="btn btn-primary w-100"
         >
           {busy ? 'Активация…' : 'Активировать'}
         </button>

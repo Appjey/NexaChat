@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react'
 import { getCurrentUserChats } from '../../shared/api/chatsApi'
 import { resolveApiUrl } from '../../shared/api/httpClient'
 import type { ChatItem } from '../../shared/api/types'
-import { BookmarkIcon, CloseIcon, GroupIcon, SearchIcon } from '../../shared/components/Icons'
+import { Avatar } from '../../shared/components/Avatar'
+import { CloseIcon, GroupIcon, SearchIcon } from '../../shared/components/Icons'
 import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
 import { log } from '../../shared/log'
@@ -132,21 +133,12 @@ export function ForwardModal({
                   style={{ cursor: 'pointer' }}
                 >
                   <div className="contacts-modal__avatar-wrap">
-                    {chat.is_favorites ? (
-                      <span
-                        className="contacts-modal__avatar d-flex align-items-center justify-content-center"
-                        style={{ background: 'var(--bs-primary, #2481cc)', color: '#fff' }}
-                      >
-                        <BookmarkIcon size={18} />
-                      </span>
-                    ) : (
-                      <img
-                        src={resolveApiUrl(chat.avatar_url) || '/img/default-avatar.svg'}
-                        alt=""
-                        className="contacts-modal__avatar"
-                        loading="lazy"
-                      />
-                    )}
+                    <Avatar
+                      name={displayName}
+                      avatarUrl={resolveApiUrl(chat.avatar_url)}
+                      size="md"
+                      isFavorites={chat.is_favorites}
+                    />
                   </div>
                   <div className="contacts-modal__info">
                     <span className="contacts-modal__name">

@@ -3,6 +3,7 @@ import { useEffect, useRef,useState } from 'react'
 import { endpoints } from '../../shared/api/endpoints'
 import { httpPost, httpPut, resolveApiUrl } from '../../shared/api/httpClient'
 import type { AvatarUploadResponse } from '../../shared/api/types'
+import { Avatar } from '../../shared/components/Avatar'
 import { CloseIcon } from '../../shared/components/Icons'
 import { useToast } from '../../shared/components/ToastContext'
 import { publicKeyBase64 } from '../../shared/crypto/e2e'
@@ -122,9 +123,10 @@ export function ProfileModal({ isOpen, onClose }: Props) {
         </div>
 
         <div className="profile-modal__avatar-wrapper" onClick={handleAvatarClick}>
-          <img
-            src={resolveApiUrl(user?.avatar_url) || '/img/default-avatar.svg'}
-            alt="avatar"
+          <Avatar
+            name={user?.name || user?.username}
+            avatarUrl={resolveApiUrl(user?.avatar_url)}
+            size="xl"
             className="profile-modal__avatar"
           />
           <div className="profile-modal__avatar-overlay">
