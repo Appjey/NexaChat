@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- Adaptive-icon foreground: glyph inside the 66% safe zone, transparent elsewhere. -->
-  <circle cx="512" cy="512" r="236" fill="none" stroke="#f2f3f8" stroke-width="54" stroke-linecap="round"
-          stroke-dasharray="1236 247" transform="rotate(-62 512 512)"/>
-  <circle cx="708" cy="356" r="48" fill="#4f8cff"/>
+  <!-- Adaptive-icon foreground: Kindred Hearth glyph inside the 66% safe zone, transparent elsewhere. -->
+  <path fill="#493B67" d="M 774.8 448.5 L 682.0 598.9 A 83.2 83.2 0 0 1 540.4 511.5 L 633.2 361.1 A 83.2 83.2 0 0 1 774.8 448.5 Z"/>
+  <path fill="#F2F4FA" d="M 386.2 367.3 L 562.2 658.5 A 84.8 84.8 0 0 1 417.0 746.3 L 241.0 455.1 A 84.8 84.8 0 0 1 386.2 367.3 Z"/>
+  <path fill="#7C5CFF" d="M 479.2 243.9 A 46.4 46.4 0 0 1 544.8 243.9 L 583.3 282.4 A 46.4 46.4 0 0 1 583.3 348.0 L 544.8 386.5 A 46.4 46.4 0 0 1 479.2 386.5 L 440.7 348.0 A 46.4 46.4 0 0 1 440.7 282.4 Z"/>
 </svg>

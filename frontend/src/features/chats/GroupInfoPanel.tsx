@@ -11,6 +11,7 @@ import {
 } from '../../shared/api/groupsApi'
 import { resolveApiUrl } from '../../shared/api/httpClient'
 import type { GroupMember } from '../../shared/api/types'
+import { Avatar } from '../../shared/components/Avatar'
 import { BanIcon, CameraIcon, CloseIcon, GroupIcon, LogOutIcon, PersonAddIcon, ShieldIcon, TrashIcon } from '../../shared/components/Icons'
 import { getPin } from '../../shared/crypto/keyPins'
 import { hasKeyChange } from '../../shared/crypto/peerKeys'
@@ -188,9 +189,10 @@ export function GroupInfoPanel({
         {/* Avatar & Name */}
         <div className="gip__hero">
           <div className="gip__avatar-wrap">
-            <img
-              src={resolveApiUrl(avatarUrl) || '/img/default-avatar.svg'}
-              alt="Group avatar"
+            <Avatar
+              name={groupName}
+              avatarUrl={resolveApiUrl(avatarUrl)}
+              size="xl"
               className="gip__avatar"
             />
             {isAdmin && (
@@ -261,7 +263,12 @@ export function GroupInfoPanel({
                 onContextMenu={(e) => handleMemberContextMenu(e, member.user_id)}
               >
                 <div className="gip-member__avatar-wrap">
-                  <img src={resolveApiUrl(member.avatar_url) || '/img/default-avatar.svg'} alt="" className="gip-member__avatar" loading="lazy" />
+                  <Avatar
+                    name={member.name || member.username}
+                    avatarUrl={resolveApiUrl(member.avatar_url)}
+                    size="md"
+                    className="gip-member__avatar"
+                  />
                   <span className={`gip-member__dot ${member.is_online ? 'online' : ''}`} />
                 </div>
                 <div className="gip-member__info">

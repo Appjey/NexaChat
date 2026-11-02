@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { useAndroidBack } from '../hooks/useAndroidBack'
 import { useModalBehavior } from '../hooks/useModalBehavior'
@@ -28,13 +28,21 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: Props) {
-  const { handleBackdropClick } = useModalBehavior({ isOpen, onClose: onCancel })
+  const dialogRef = useRef<HTMLDivElement | null>(null)
+  const { handleBackdropClick } = useModalBehavior({
+    isOpen,
+    onClose: onCancel,
+    containerRef: dialogRef,
+    trapFocus: true,
+  })
   useAndroidBack(() => { onCancel(); return true }, isOpen)
 
   useEffect(() => {
     if (!isOpen) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && !busy) onConfirm()
+      if (e.key === 'Enter' && !busy && !(e.target instanceof HTMLButtonElement)) {
+        onConfirm()
+      }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
@@ -44,7 +52,13 @@ export function ConfirmDialog({
 
   return (
     <div className="confirm-dialog__backdrop" onClick={handleBackdropClick}>
-      <div className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
+      <div
+        ref={dialogRef}
+        className="confirm-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-dialog-title"
+      >
         <h3 id="confirm-dialog-title" className="confirm-dialog__title">{title}</h3>
         {message && <p className="confirm-dialog__message">{message}</p>}
         <div className="confirm-dialog__actions">

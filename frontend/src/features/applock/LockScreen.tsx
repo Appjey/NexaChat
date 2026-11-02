@@ -104,8 +104,8 @@ export function LockScreen() {
         inset: 0,
         // Opaque on purpose: the app stays mounted underneath and must not
         // shine through.
-        background: 'var(--bg-primary, #0d1117)',
-        color: 'var(--text-primary, #f0f6fc)',
+        background: 'var(--bg-primary, #0D1017)',
+        color: 'var(--text-primary, #F2F4FA)',
         zIndex: 10000,
         display: 'flex',
         alignItems: 'center',
@@ -113,9 +113,20 @@ export function LockScreen() {
         padding: 16,
       }}
     >
-      <div style={{ maxWidth: 360, width: '100%', textAlign: 'center' }}>
-        <h1 style={{ fontSize: 32, fontWeight: 600, marginBottom: 8 }}>NexaChat</h1>
-        <p style={{ color: 'var(--text-secondary, #8b949e)', fontSize: 14, marginBottom: 24 }}>
+      <div
+        style={{
+          maxWidth: 380,
+          width: '100%',
+          textAlign: 'center',
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border-color)',
+          borderRadius: 16,
+          padding: '28px 24px',
+          boxShadow: 'var(--shadow-lg)',
+        }}
+      >
+        <h1 style={{ fontSize: 28, fontWeight: 700, fontFamily: 'var(--font-display)', marginBottom: 8 }}>NexaChat</h1>
+        <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 24 }}>
           Приложение заблокировано
         </p>
 
@@ -139,7 +150,7 @@ export function LockScreen() {
             className="form-control"
             style={{ marginBottom: 12 }}
           />
-          {error && <div style={{ color: '#f66', fontSize: 13, marginBottom: 12 }}>{error}</div>}
+          {error && <div style={{ color: 'var(--color-danger)', fontSize: 13, marginBottom: 12 }}>{error}</div>}
           <button type="submit" disabled={busy || !password} className="btn btn-outline-secondary w-100">
             {busy ? 'Проверка…' : 'Войти по паролю'}
           </button>
@@ -150,7 +161,7 @@ export function LockScreen() {
           onClick={() => void handleLogout()}
           disabled={busy}
           className="btn btn-link btn-sm"
-          style={{ marginTop: 24, color: 'var(--text-secondary, #8b949e)' }}
+          style={{ marginTop: 24, color: 'var(--text-secondary)' }}
         >
           Выйти из аккаунта
         </button>

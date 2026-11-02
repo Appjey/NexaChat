@@ -45,7 +45,7 @@ export function EnableAppLockOffer() {
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0, 0, 0, 0.7)',
+        background: 'var(--bg-scrim, rgba(13, 16, 23, 0.72))',
         backdropFilter: 'blur(4px)',
         zIndex: 9998,
         display: 'flex',
@@ -58,17 +58,18 @@ export function EnableAppLockOffer() {
         role="dialog"
         aria-modal="true"
         style={{
-          background: 'var(--bg-elevated, #1c2128)',
-          color: 'var(--text-primary, #f0f6fc)',
-          borderRadius: 12,
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border-color)',
+          color: 'var(--text-primary)',
+          borderRadius: 16,
           padding: '24px 28px',
           maxWidth: 420,
           width: '100%',
-          boxShadow: '0 10px 40px rgba(0, 0, 0, 0.5)',
+          boxShadow: 'var(--shadow-lg)',
         }}
       >
-        <h3 style={{ margin: '0 0 12px', fontSize: 18, fontWeight: 600 }}>Быстрый вход</h3>
-        <p style={{ margin: '0 0 16px', fontSize: 14, lineHeight: 1.5, color: 'var(--text-secondary, #8b949e)' }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: 18, fontWeight: 700, fontFamily: 'var(--font-display)' }}>Быстрый вход</h3>
+        <p style={{ margin: '0 0 16px', fontSize: 14, lineHeight: 1.5, color: 'var(--text-secondary)' }}>
           Включить вход по биометрии? Приложение будет автоматически блокироваться в фоне,
           а для входа достаточно отпечатка или лица. Настроить можно в «Конфиденциальность».
         </p>

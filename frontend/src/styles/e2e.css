@@ -1,86 +1,136 @@
-/* ---------- E2E key verification ---------- */
+/* ---------- E2E key verification & warning banners ---------- */
 
 .e2e-banner {
-  padding: 8px 12px;
-  background: rgba(255, 193, 7, 0.12);
-  border-top: 1px solid rgba(255, 193, 7, 0.3);
-  color: #ffc107;
-  font-size: 13px;
-  line-height: 1.4;
+  margin: 8px 16px 0;
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: var(--accent-warning-dim);
+  border: 1px solid rgba(229, 169, 60, 0.32);
+  color: var(--text-primary);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  flex-shrink: 0;
+}
+
+.e2e-banner--warning {
+  color: var(--text-primary);
 }
 
 .e2e-banner--danger {
-  background: rgba(220, 53, 69, 0.12);
-  border-top-color: rgba(220, 53, 69, 0.4);
-  color: #ff6b6b;
+  background: var(--bg-secondary);
+  border: 1px solid rgba(229, 100, 110, 0.42);
+  box-shadow: var(--shadow-md);
+}
+
+.e2e-banner__title {
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.e2e-banner__body {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.45;
 }
 
 .e2e-banner__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 10px;
 }
 
 .e2e-banner__btn {
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid currentColor;
-  background: transparent;
-  color: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
   cursor: pointer;
+  transition: var(--transition);
 }
 
 .e2e-banner__btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-hover);
+}
+
+.e2e-banner__btn--primary {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: #ffffff;
+}
+
+.e2e-banner__btn--primary:hover {
+  background: var(--accent-primary-hover);
+  border-color: var(--accent-primary-hover);
+}
+
+.e2e-banner__btn--secondary {
+  background: var(--bg-tertiary);
+  border-color: var(--border-light);
+  color: var(--text-primary);
+}
+
+.e2e-banner__footer {
+  margin-top: 8px;
+  font-size: 0.76rem;
+  color: var(--text-muted);
 }
 
 .e2e-section {
   width: 100%;
   margin-top: 16px;
-  padding: 12px;
-  border-radius: 10px;
-  background: rgba(127, 127, 127, 0.12);
-  font-size: 13px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  font-size: 0.82rem;
   text-align: left;
 }
 
 .e2e-section__title {
-  font-weight: 600;
+  font-weight: 700;
+  color: var(--text-primary);
   margin-bottom: 6px;
 }
 
 .e2e-section__status {
   margin: 4px 0 8px;
+  font-weight: 500;
 }
 
 .e2e-section__status--ok {
-  color: #51cf66;
+  color: var(--accent-success);
 }
 
 .e2e-section__status--danger {
-  color: #ff6b6b;
+  color: var(--accent-danger);
 }
 
 .e2e-section__number {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
+  font-size: 0.82rem;
   letter-spacing: 0.5px;
   line-height: 1.7;
   word-break: break-word;
   user-select: all;
+  color: var(--text-primary);
 }
 
 .e2e-section__fp {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: 0.76rem;
   user-select: all;
+  color: var(--text-secondary);
 }
 
 .e2e-section__hint {
-  font-size: 12px;
-  opacity: 0.75;
+  font-size: 0.76rem;
+  color: var(--text-muted);
   margin-top: 6px;
 }
 
@@ -95,20 +145,20 @@
   display: block;
   margin-top: 4px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  opacity: 0.7;
+  font-size: 0.72rem;
+  color: var(--text-muted);
   user-select: all;
 }
 
 .gip-member__key {
-  font-size: 11px;
+  font-size: 0.72rem;
   margin-left: 6px;
 }
 
 .gip-member__key--verified {
-  color: #51cf66;
+  color: var(--accent-success);
 }
 
 .gip-member__key--changed {
-  color: #ff6b6b;
+  color: var(--accent-danger);
 }

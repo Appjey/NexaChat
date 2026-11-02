@@ -123,6 +123,7 @@ function createWindow() {
     minWidth: 400,
     minHeight: 600,
     title: 'NexaChat',
+    backgroundColor: '#0D1017',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

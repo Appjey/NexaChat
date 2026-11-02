@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 
 import type { Message } from '../../shared/api/types'
-import { formatFileSize,getFileIcon } from '../../shared/utils'
+import { formatFileSize, getFileIcon } from '../../shared/utils'
 
 // Clipboard images (e.g. screenshots) often arrive without a usable filename.
 // Synthesize one from the mime type so the attachment shows something sensible
@@ -196,6 +196,7 @@ export function MessageComposer({
             onMouseDown={(e) => e.preventDefault()}
             className={`btn icon-btn send-btn${sending ? ' send-btn--sending' : ''}`}
             title="Отправить"
+            aria-label="Отправить"
             disabled={uploading || disabled || sending || (!messageText.trim() && selectedFiles.length === 0)}
           >
             {sending ? (
@@ -207,6 +208,10 @@ export function MessageComposer({
             )}
           </button>
         </div>
+      </div>
+      <div className="chat-composer__hint" aria-hidden="true">
+        <span>Enter — отправить</span>
+        <span>Shift + Enter — новая строка</span>
       </div>
     </form>
   )

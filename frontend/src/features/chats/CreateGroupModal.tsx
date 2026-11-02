@@ -5,6 +5,7 @@ import { userMessage } from '../../shared/api/errors'
 import { createGroup } from '../../shared/api/groupsApi'
 import { resolveApiUrl } from '../../shared/api/httpClient'
 import type { GroupCreateResponse, UserListItem } from '../../shared/api/types'
+import { Avatar } from '../../shared/components/Avatar'
 import { CheckIcon, CloseIcon, SearchIcon } from '../../shared/components/Icons'
 import { useAndroidBack } from '../../shared/hooks/useAndroidBack'
 import { useModalBehavior } from '../../shared/hooks/useModalBehavior'
@@ -145,11 +146,10 @@ export function CreateGroupModal({ isOpen, onClose, onGroupCreated }: Props) {
                       style={{ cursor: 'pointer' }}
                     >
                       <div className="contacts-modal__avatar-wrap">
-                        <img
-                          src={resolveApiUrl(contact.avatar_url) || '/img/default-avatar.svg'}
-                          alt=""
-                          className="contacts-modal__avatar"
-                          loading="lazy"
+                        <Avatar
+                          name={contact.name || contact.username}
+                          avatarUrl={resolveApiUrl(contact.avatar_url)}
+                          size="md"
                         />
                       </div>
                       <div className="contacts-modal__info">
