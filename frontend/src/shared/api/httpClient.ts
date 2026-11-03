@@ -63,10 +63,10 @@ export async function hydrateAuthToken(): Promise<void> {
 /** `{"error": "...", "code": "..."}` → ApiError; anything else keeps the raw body as the message. */
 function parseApiError(status: number, body: string): ApiError {
   try {
-    const parsed = JSON.parse(body) as { error?: unknown; code?: unknown }
+    const parsed = JSON.parse(body) as Record<string, unknown>
     const message = typeof parsed.error === 'string' && parsed.error ? parsed.error : `Request failed: ${status}`
     const code = typeof parsed.code === 'string' ? parsed.code : undefined
-    return new ApiError(status, message, code)
+    return new ApiError(status, message, code, parsed)
   } catch {
     return new ApiError(status, body || `Request failed: ${status}`)
   }

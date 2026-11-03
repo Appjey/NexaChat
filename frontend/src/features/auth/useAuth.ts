@@ -11,6 +11,7 @@ import { clearPeerKeyCache } from '../../shared/crypto/peerKeys'
 import { unregisterFCMDevice } from '../../shared/hooks/useFCMNotifications'
 import { log } from '../../shared/log'
 import { clearAllCachedMessages } from '../../shared/messageCache'
+import { clearPreferencesCacheOnLogout } from '../../shared/preferences/storage'
 
 const CACHED_PROFILE_KEY = 'cached_user_profile'
 
@@ -97,6 +98,7 @@ export function useAuth() {
     // App-lock is per-account device state: the previous owner's biometrics
     // must not unlock the next login, and the next login re-gets the offer.
     clearAppLockOnLogout()
+    clearPreferencesCacheOnLogout()
     setUser(null)
     setLoading(false)
     initializedRef.current = false

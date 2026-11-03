@@ -68,5 +68,11 @@ export const endpoints = {
   updates: {
     latest: '/api/updates/latest',
   },
+  preferences: {
+    all: '/api/preferences',
+    account: '/api/preferences/account',
+    bulkApply: '/api/preferences/bulk-apply',
+    chat: (chatId: number | string) => `/api/preferences/chats/${chatId}`,
+  },
   clientErrors: '/api/client-errors',
 }

@@ -29,6 +29,7 @@ const (
 	codeNameInvalid          = "name_invalid"
 	codeWeakPassword         = "weak_password"
 	codeClientUpdateRequired = "client_update_required"
+	codeVersionConflict      = "version_conflict"
 )
 
 // sendError writes a coded error body with the given status.

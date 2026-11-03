@@ -24,10 +24,13 @@ import { dismissChatNotifications } from '../shared/dismissChatNotifications'
 import { useAndroidBack } from '../shared/hooks/useAndroidBack'
 import { useGlobalWebSocket } from '../shared/hooks/useGlobalWebSocket'
 import { useShareTarget } from '../shared/hooks/useShareTarget'
+import { useTheme } from '../shared/hooks/useTheme'
 import { log } from '../shared/log'
 import { loadCachedMessages, removeCachedMessages, saveCachedMessages } from '../shared/messageCache'
 import { subscribePendingChat } from '../shared/pendingChat'
 import { subscribePendingShare } from '../shared/pendingShare'
+import { playSoundTone } from '../shared/preferences/catalog'
+import { shouldPlayIncomingNotificationSound } from '../shared/preferences/resolver'
 
 export default function ChatsPage() {
   const {
@@ -39,7 +42,14 @@ export default function ChatsPage() {
   } = useOutletContext<OutletContextType>()
   const { user } = useAuthContext()
   const callContext = useCallContext()
+  const { getEffectiveChatPrefs, handlePreferenceWSEvent, syncPreferences } = useTheme()
   const accountKeyCtx = useAccountKey()
+
+  useEffect(() => {
+    if (user?.id) {
+      void syncPreferences()
+    }
+  }, [user?.id, syncPreferences])
   const accountKeyReady = accountKeyCtx.state.status === 'ready'
   // Snapshot the current account_key in a ref so the WS event handler (which captures
   // closures with stale `accountKeyCtx`) always sees the latest value. The handler
@@ -260,6 +270,11 @@ export default function ChatsPage() {
         return
       }
 
+      if (event.action === 'prefs_updated') {
+        handlePreferenceWSEvent(event)
+        return
+      }
+
       const chatId = 'chat_id' in event ? event.chat_id : undefined
       if (!chatId) return
 
@@ -289,6 +304,20 @@ export default function ChatsPage() {
             sendRef.current({ action: 'mark_read', chat_id: chatId, up_to_message_id: event.id })
           } else {
             scheduleDeliveredAck(chatId, event.id)
+          }
+        }
+
+        if (event.type !== 'system') {
+          const effPrefs = getEffectiveChatPrefs(chatId)
+          const soundDecision = shouldPlayIncomingNotificationSound(effPrefs, {
+            isOwnMessage: event.user_id === user?.id,
+            isReplayed: Boolean(event.replayed),
+            inActiveCall: callContext.callState.status !== 'idle',
+            osPermissionDenied:
+              typeof Notification !== 'undefined' && Notification.permission === 'denied',
+          })
+          if (soundDecision.play && soundDecision.soundId) {
+            playSoundTone(soundDecision.soundId)
           }
         }
 
@@ -488,7 +517,14 @@ export default function ChatsPage() {
         return
       }
     },
-    [activeChatId, user?.id, scheduleDeliveredAck]
+    [
+      activeChatId,
+      user?.id,
+      scheduleDeliveredAck,
+      handlePreferenceWSEvent,
+      getEffectiveChatPrefs,
+      callContext.callState.status,
+    ]
   )
 
   const { isConnected, send } = useGlobalWebSocket({
@@ -510,18 +546,22 @@ export default function ChatsPage() {
   // because we missed events while offline. Skip the very first connect: that's just the
   // initial mount, and the other effects already cover it.
   const hasConnectedRef = useRef(false)
+  const prevConnectedRef = useRef(false)
   useEffect(() => {
-    if (!isConnected) return
+    const wasConnected = prevConnectedRef.current
+    prevConnectedRef.current = isConnected
+    if (!isConnected || wasConnected) return
     if (!hasConnectedRef.current) {
       hasConnectedRef.current = true
       return
     }
     loadChatsRef.current()
+    void syncPreferences()
     if (activeChatId !== null) {
       messageCacheRef.current.delete(activeChatId)
       loadMessagesRef.current(activeChatId)
     }
-  }, [isConnected, activeChatId])
+  }, [isConnected, activeChatId, syncPreferences])
 
   const loadChats = useCallback(async () => {
     // If we already have data (from cache or a previous load), keep showing it while

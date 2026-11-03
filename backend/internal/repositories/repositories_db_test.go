@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -65,6 +66,7 @@ func testDB(t *testing.T) *gorm.DB {
 		&models.UnreadMessage{}, &models.MessageReceipt{}, &models.PushSubscription{},
 		&models.ChatParticipant{}, &models.PinnedMessage{}, &models.FCMToken{},
 		&models.AppRelease{}, &models.Session{},
+		&models.UserPreference{}, &models.UserChatPreference{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -335,5 +337,56 @@ func TestUnreadMessageRepo_CountsAndDrain(t *testing.T) {
 	counts, _ = repo.GetUnreadCounts(ctx, 7)
 	if len(counts) != 0 {
 		t.Fatalf("expected no unread for user 7, got %v", counts)
+	}
+}
+
+// ---------- preferences ----------
+
+func TestPreferenceRepo_AccountAndChatCAS(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	repo := NewPreferenceRepo(db)
+
+	pref := models.DefaultUserPreference(101)
+	pref.ThemeID = "ocean"
+	pref.LastIdempotencyKey = "idem-acc-1"
+
+	saved, err := repo.UpsertAccountPrefCAS(ctx, pref, 0)
+	if err != nil {
+		t.Fatalf("UpsertAccountPrefCAS initial: %v", err)
+	}
+	if saved.Version != 1 || saved.ThemeID != "ocean" {
+		t.Fatalf("unexpected saved account pref: %+v", saved)
+	}
+
+	// Idempotent retry with same key and expectedVersion=0
+	retry, err := repo.UpsertAccountPrefCAS(ctx, pref, 0)
+	if err != nil || retry.Version != 1 {
+		t.Fatalf("idempotent retry failed: err=%v ver=%d", err, retry.Version)
+	}
+
+	// Conflict with stale expectedVersion=0 and new key
+	prefConflict := *saved
+	prefConflict.ThemeID = "forest"
+	prefConflict.LastIdempotencyKey = "idem-acc-2"
+	current, err := repo.UpsertAccountPrefCAS(ctx, &prefConflict, 0)
+	if !errors.Is(err, ErrPreferenceVersionConflict) || current == nil || current.ThemeID != "ocean" {
+		t.Fatalf("expected conflict with current ocean, got err=%v cur=%+v", err, current)
+	}
+
+	// Per-chat CAS + DeleteByChat
+	chatPref, err := repo.UpsertChatPrefCAS(ctx, 101, 55, 0, "chat-idem-1", func(cur *models.UserChatPreference) {
+		cur.WallpaperMode = models.PrefModeNone
+	})
+	if err != nil || chatPref.Version != 1 || chatPref.WallpaperMode != models.PrefModeNone {
+		t.Fatalf("UpsertChatPrefCAS failed: err=%v pref=%+v", err, chatPref)
+	}
+
+	if err := repo.DeleteByChat(ctx, 55); err != nil {
+		t.Fatalf("DeleteByChat: %v", err)
+	}
+	list, err := repo.ListChatPrefs(ctx, 101)
+	if err != nil || len(list) != 0 {
+		t.Fatalf("expected empty chat prefs after DeleteByChat, got %v, %v", list, err)
 	}
 }

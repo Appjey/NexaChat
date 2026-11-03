@@ -6,12 +6,14 @@
 export class ApiError extends Error {
   readonly status: number
   readonly code?: string
+  readonly data?: Record<string, unknown>
 
-  constructor(status: number, message: string, code?: string) {
+  constructor(status: number, message: string, code?: string, data?: Record<string, unknown>) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.data = data
   }
 }
 
@@ -27,6 +29,7 @@ const MESSAGES: Record<string, string> = {
   name_invalid: 'Имя: от 2 до 50 символов, хотя бы одна буква или цифра',
   weak_password: 'Пароль должен быть не короче 8 символов',
   validation: 'Проверьте введённые данные',
+  version_conflict: 'Настройки были изменены на другом устройстве',
   client_update_required: 'Обновите приложение, чтобы продолжить',
   unauthorized: 'Нужно войти заново',
   forbidden: 'Нет доступа',

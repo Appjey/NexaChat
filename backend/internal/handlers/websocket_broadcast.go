@@ -504,3 +504,20 @@ func (h *webSocketHandler) BroadcastAttachmentsAdded(chatID, messageID uint, att
 		)
 	}
 }
+
+// broadcastPreferenceEvent notifies all connected sessions of a user that their
+// account or per-chat preferences have been updated on one of their devices.
+func (h *webSocketHandler) broadcastPreferenceEvent(userID uint, payload map[string]any) {
+	if !h.presenceService.IsUserOnline(userID) {
+		return
+	}
+	msgJSON, err := json.Marshal(payload)
+	if err != nil {
+		h.logger.Error("failed to marshal preference event",
+			zap.Error(err),
+			zap.Uint("user_id", userID),
+		)
+		return
+	}
+	h.broadcastToUser(userID, msgJSON)
+}
