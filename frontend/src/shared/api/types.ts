@@ -503,6 +503,17 @@ export type WSEventCallReady = {
   user_id: number
 }
 
+export type WSEventPrefsUpdated = {
+  action: 'prefs_updated'
+  scope: 'account' | 'chat' | 'bulk'
+  user_id: number
+  chat_id?: number
+  account?: unknown
+  preference?: unknown
+  effective?: unknown
+  result?: unknown
+}
+
 export type WSEvent =
   | WSEventNew
   | WSEventEdit
@@ -526,4 +537,5 @@ export type WSEvent =
   | WSEventCallHangup
   | WSEventCallReject
   | WSEventCallReady
+  | WSEventPrefsUpdated
   | ApiError

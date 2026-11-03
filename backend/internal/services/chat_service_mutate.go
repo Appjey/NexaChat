@@ -298,6 +298,11 @@ func (s *ChatService) purgeChat(ctx context.Context, chatID uint) ([]string, err
 		return nil, err
 	}
 
+	// Delete per-chat personalization overrides for this chat
+	if err := s.db.WithContext(ctx).Unscoped().Where("chat_id = ?", chatID).Delete(&models.UserChatPreference{}).Error; err != nil {
+		return storageKeys, fmt.Errorf("delete chat preferences: %w", err)
+	}
+
 	// Hard-delete the chat itself (Unscoped bypasses GORM soft-delete)
 	if err := s.db.WithContext(ctx).Unscoped().Delete(&models.Chat{}, chatID).Error; err != nil {
 		return storageKeys, fmt.Errorf("delete chat: %w", err)

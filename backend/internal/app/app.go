@@ -230,6 +230,8 @@ func runMigrations(db *gorm.DB, log *zap.Logger) error {
 		&models.FCMToken{},
 		&models.AppRelease{},
 		&models.Session{},
+		&models.UserPreference{},
+		&models.UserChatPreference{},
 	); err != nil {
 		return err
 	}

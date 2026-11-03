@@ -180,6 +180,9 @@ func (s *GroupService) purgeGroupData(ctx context.Context, chatID uint) error {
 		if err := tx.Unscoped().Where("chat_id = ?", chatID).Delete(&models.ChatParticipant{}).Error; err != nil {
 			return fmt.Errorf("delete participants: %w", err)
 		}
+		if err := tx.Unscoped().Where("chat_id = ?", chatID).Delete(&models.UserChatPreference{}).Error; err != nil {
+			return fmt.Errorf("delete chat preferences: %w", err)
+		}
 		if err := tx.Unscoped().Where("chat_id = ?", chatID).Delete(&models.PinnedMessage{}).Error; err != nil {
 			return fmt.Errorf("delete pinned messages: %w", err)
 		}

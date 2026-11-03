@@ -782,7 +782,8 @@
   flex: 1;
   overflow-y: auto;
   padding: 16px 20px;
-  background: var(--bg-primary);
+  background: var(--chat-wallpaper-bg, var(--bg-primary));
+  background-size: var(--chat-wallpaper-size, auto);
   display: flex;
   flex-direction: column-reverse;
   gap: 4px;

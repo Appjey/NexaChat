@@ -7,7 +7,7 @@ import { httpPost, resolveApiUrl } from '../../shared/api/httpClient'
 import type { ChatItem, GroupMember, Message, PinnedMessage, WSMessageAction } from '../../shared/api/types'
 import { Avatar } from '../../shared/components/Avatar'
 import { ConfirmDialog } from '../../shared/components/ConfirmDialog'
-import { PhoneIcon } from '../../shared/components/Icons'
+import { PaletteIcon, PhoneIcon } from '../../shared/components/Icons'
 import { useToast } from '../../shared/components/ToastContext'
 import { encryptMessage, type GroupRecipientKey } from '../../shared/crypto/e2e'
 import {
@@ -18,11 +18,14 @@ import {
   resolveAttachmentRecipients,
   rewrapAttachmentEnvelopes,
 } from '../../shared/crypto/peerKeys'
+import { useTheme } from '../../shared/hooks/useTheme'
 import { log } from '../../shared/log'
+import { getThemePreset, getWallpaperPreset } from '../../shared/preferences/catalog'
 import { formatLastSeen } from '../../shared/utils'
 import { useAccountKey } from '../auth/AccountKey'
 import { useCallContext } from '../calls/CallContext'
 import { UserProfileModal } from '../profile/UserProfileModal'
+import { ChatPersonalizationModal } from './ChatPersonalizationModal'
 import { ChatSearch } from './ChatSearch'
 import { EmojiPicker } from './EmojiPicker'
 import { ForwardModal } from './ForwardModal'
@@ -128,6 +131,7 @@ export function ChatWindow({
   const [isGroupInfoOpen, setIsGroupInfoOpen] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isPersonalizationOpen, setIsPersonalizationOpen] = useState(false)
   const [showEmojiPanel, setShowEmojiPanel] = useState(false)
   const [showPinnedBar, setShowPinnedBar] = useState(true)
   const [confirmAction, setConfirmAction] = useState<
@@ -169,6 +173,7 @@ export function ChatWindow({
     setShowPinnedBar(true)
     setIsSearchOpen(false)
     setIsMenuOpen(false)
+    setIsPersonalizationOpen(false)
     setIsGroupInfoOpen(false)
     setConfirmAction(null)
     setForwardingMessage(null)
@@ -192,6 +197,45 @@ export function ChatWindow({
   const { showToast } = useToast()
   const { callState, initiateCall } = useCallContext()
   const accountKeyCtx = useAccountKey()
+  const { getEffectiveChatPrefs } = useTheme()
+
+  const effectiveChatPrefs = useMemo(
+    () => (chatId ? getEffectiveChatPrefs(chatId) : null),
+    [chatId, getEffectiveChatPrefs],
+  )
+
+  const chatStyle = useMemo((): React.CSSProperties | undefined => {
+    if (!effectiveChatPrefs) return undefined
+    const styleObj: Record<string, string> = {}
+    const themePreset = getThemePreset(effectiveChatPrefs.theme.id)
+    if (themePreset) {
+      const tokens = themePreset.tokens[effectiveChatPrefs.resolved_variant]
+      Object.entries(tokens).forEach(([k, v]) => {
+        styleObj[k] = v
+      })
+    }
+    if (effectiveChatPrefs.wallpaper.mode === 'preset') {
+      const wp = getWallpaperPreset(effectiveChatPrefs.wallpaper.id)
+      if (wp) {
+        styleObj['--chat-wallpaper-bg'] = wp.background[effectiveChatPrefs.resolved_variant]
+        styleObj['--chat-wallpaper-size'] = wp.backgroundSize || 'auto'
+      }
+    } else {
+      styleObj['--chat-wallpaper-bg'] = 'var(--bg-primary)'
+      styleObj['--chat-wallpaper-size'] = 'auto'
+    }
+    return styleObj as React.CSSProperties
+  }, [effectiveChatPrefs])
+
+  const chatMainStyle = useMemo((): React.CSSProperties | undefined => {
+    if (!effectiveChatPrefs || effectiveChatPrefs.wallpaper.mode !== 'preset') return undefined
+    const wp = getWallpaperPreset(effectiveChatPrefs.wallpaper.id)
+    if (!wp) return undefined
+    return {
+      background: wp.background[effectiveChatPrefs.resolved_variant],
+      ...(wp.backgroundSize ? { backgroundSize: wp.backgroundSize } : {}),
+    }
+  }, [effectiveChatPrefs])
 
   const currentGroupMember = useMemo(
     () => (isGroup && currentUserId ? groupMembers.find((m) => m.user_id === currentUserId) : undefined),
@@ -740,8 +784,14 @@ export function ChatWindow({
   }
 
   return (
-    <div className={`chat-window glassy${showEmojiPanel ? ' chat-window--emoji-open' : ''}`}>
-      <div className="chat-window__main">
+    <div
+      className={`chat-window glassy${showEmojiPanel ? ' chat-window--emoji-open' : ''}`}
+      data-theme={effectiveChatPrefs?.resolved_variant}
+      data-chat-theme-preset={effectiveChatPrefs?.theme.id}
+      data-chat-wallpaper={effectiveChatPrefs?.wallpaper.mode === 'none' ? 'none' : (effectiveChatPrefs?.wallpaper.id || 'none')}
+      style={chatStyle}
+    >
+      <div className="chat-window__main" style={chatMainStyle}>
         <div className="chat-header">
           <div className="chat-header__title">
             {isMobile && (
@@ -838,6 +888,18 @@ export function ChatWindow({
               </button>
               {isMenuOpen && (
                 <div className="chat-menu__dropdown" role="menu" aria-label="Действия чата">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="chat-menu__item"
+                    onClick={() => {
+                      setIsMenuOpen(false)
+                      setIsPersonalizationOpen(true)
+                    }}
+                  >
+                    <PaletteIcon size={16} />
+                    <span>Оформление и звук чата</span>
+                  </button>
                   {canClearChat && (
                     <button
                       type="button"
@@ -1053,6 +1115,15 @@ export function ChatWindow({
           onGroupUpdated={() => { onGroupUpdated?.() }}
           onGroupDeleted={() => { setIsGroupInfoOpen(false); onGroupDeleted?.() }}
           onGroupLeft={() => { setIsGroupInfoOpen(false); onGroupLeft?.() }}
+        />
+      )}
+
+      {chatId && (
+        <ChatPersonalizationModal
+          isOpen={isPersonalizationOpen}
+          chatId={chatId}
+          chatTitle={displayName || ''}
+          onClose={() => setIsPersonalizationOpen(false)}
         />
       )}
 

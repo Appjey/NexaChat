@@ -38,6 +38,7 @@ func SetupRoutes(
 	pushSubRepo := repositories.NewPushSubscriptionRepo(db)
 	fcmTokenRepo := repositories.NewFCMTokenRepo(db)
 	participantRepo := repositories.NewChatParticipantRepo(db)
+	prefRepo := repositories.NewPreferenceRepo(db)
 
 	// Initialize services
 	authService := services.NewAuthService(logger, userRepo)
@@ -53,6 +54,7 @@ func SetupRoutes(
 	groupService := services.NewGroupService(db, logger, chatRepo, participantRepo, messageRepo, unreadMessageRepo, userRepo, fileStorage)
 	pinService := services.NewPinService(db, logger, repositories.NewPinnedMessageRepo(db), messageRepo, envelopeRepo, chatRepo, participantRepo, userRepo)
 	appReleaseService := services.NewAppReleaseService(logger, repositories.NewAppReleaseRepo(db))
+	prefService := services.NewPreferenceService(logger, prefRepo, chatRepo, participantRepo)
 
 	tokenTTL := time.Duration(cfg.JWTExpiryDays) * 24 * time.Hour
 	requireAuth := jwtMiddleware(secret, logger, tokenTTL, sessionService, cfg.AllowedOrigins)
@@ -81,6 +83,7 @@ func SetupRoutes(
 	pinH := newPinHandler(pinService, fileStorage)
 	releaseH := newAppReleaseHandler(appReleaseService, cfg.AdminAPIKey, logger)
 	clientErrorH := newClientErrorHandler(logger)
+	prefH := newPreferenceHandler(prefService)
 
 	// Configure presence service to broadcast status changes via WebSocket
 	presenceService.SetOnChangeCallback(wsH.broadcastPresenceChange)
@@ -96,6 +99,9 @@ func SetupRoutes(
 
 	// Configure pin handler to broadcast pin events via WebSocket
 	pinH.setOnPinEventCallback(wsH.broadcastPinEvent)
+
+	// Configure preference handler to broadcast sync events via WebSocket
+	prefH.setOnPreferenceEventCallback(wsH.broadcastPreferenceEvent)
 
 	// Public endpoints (no JWT middleware)
 	router.GET("/health", healthH.GetHealth)
@@ -135,6 +141,7 @@ func SetupRoutes(
 	registerPushRoutes(api, pushH)
 	registerGroupRoutes(api, groupH)
 	registerClientErrorRoutes(api, clientErrorH)
+	registerPreferenceRoutes(api, prefH)
 
 	return wsH.Close, nil
 }
@@ -207,6 +214,16 @@ func registerUserRoutes(api *gin.RouterGroup, uh *userHandler, wh *webSocketHand
 
 func registerClientErrorRoutes(api *gin.RouterGroup, h *clientErrorHandler) {
 	api.POST("/client-errors", h.Report)
+}
+
+func registerPreferenceRoutes(api *gin.RouterGroup, h *preferenceHandler) {
+	prefs := api.Group("/preferences")
+	prefs.GET("", h.GetAllPreferencesAPI)
+	prefs.PUT("/account", h.UpdateAccountPreferencesAPI)
+	prefs.POST("/bulk-apply", h.BulkApplyPreferencesAPI)
+	prefs.GET("/chats/:chat_id", h.GetChatPreferenceAPI)
+	prefs.PUT("/chats/:chat_id", h.UpdateChatPreferenceAPI)
+	prefs.DELETE("/chats/:chat_id", h.ResetChatPreferenceAPI)
 }
 
 func registerPushRoutes(api *gin.RouterGroup, h *pushHandler) {
