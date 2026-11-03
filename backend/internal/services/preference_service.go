@@ -554,21 +554,34 @@ func validateAccountInput(in AccountPreferenceInput) error {
 	if in.Appearance != nil && !isValidAppearance(*in.Appearance) {
 		return fmt.Errorf("%w: invalid appearance mode", ErrPreferenceValidation)
 	}
-	if in.Wallpaper != nil {
-		if !isExplicitWallpaperMode(in.Wallpaper.Mode) {
-			return fmt.Errorf("%w: invalid account wallpaper mode", ErrPreferenceValidation)
-		}
-		if (in.Wallpaper.Mode == models.PrefModePreset || in.Wallpaper.Mode == models.PrefModeCustom) && strings.TrimSpace(in.Wallpaper.ID) == "" {
-			return fmt.Errorf("%w: wallpaper preset/custom requires non-empty id", ErrPreferenceValidation)
-		}
+	if err := validateAccountWallpaperPatch(in.Wallpaper); err != nil {
+		return err
 	}
-	if in.Sound != nil {
-		if !isExplicitSoundMode(in.Sound.Mode) {
-			return fmt.Errorf("%w: invalid account sound mode", ErrPreferenceValidation)
-		}
-		if (in.Sound.Mode == models.PrefModePreset || in.Sound.Mode == models.PrefModeCustom) && strings.TrimSpace(in.Sound.ID) == "" {
-			return fmt.Errorf("%w: sound preset/custom requires non-empty id", ErrPreferenceValidation)
-		}
+	return validateAccountSoundPatch(in.Sound)
+}
+
+func validateAccountWallpaperPatch(p *FieldPatch) error {
+	if p == nil {
+		return nil
+	}
+	if !isExplicitWallpaperMode(p.Mode) {
+		return fmt.Errorf("%w: invalid account wallpaper mode", ErrPreferenceValidation)
+	}
+	if (p.Mode == models.PrefModePreset || p.Mode == models.PrefModeCustom) && strings.TrimSpace(p.ID) == "" {
+		return fmt.Errorf("%w: wallpaper preset/custom requires non-empty id", ErrPreferenceValidation)
+	}
+	return nil
+}
+
+func validateAccountSoundPatch(p *FieldPatch) error {
+	if p == nil {
+		return nil
+	}
+	if !isExplicitSoundMode(p.Mode) {
+		return fmt.Errorf("%w: invalid account sound mode", ErrPreferenceValidation)
+	}
+	if (p.Mode == models.PrefModePreset || p.Mode == models.PrefModeCustom) && strings.TrimSpace(p.ID) == "" {
+		return fmt.Errorf("%w: sound preset/custom requires non-empty id", ErrPreferenceValidation)
 	}
 	return nil
 }

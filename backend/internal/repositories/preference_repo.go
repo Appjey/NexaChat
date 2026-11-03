@@ -126,30 +126,21 @@ func (r *PreferenceRepo) UpsertChatPrefCAS(
 ) (*models.UserChatPreference, error) {
 	var out *models.UserChatPreference
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var current models.UserChatPreference
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("user_id = ? AND chat_id = ?", userID, chatID).
-			First(&current).Error
-
-		isNew := errors.Is(err, gorm.ErrRecordNotFound)
-		if err != nil && !isNew {
+		current, isNew, err := loadOrInitChatPref(tx, userID, chatID)
+		if err != nil {
 			return err
 		}
-
-		if isNew {
-			current = *models.DefaultUserChatPreference(userID, chatID)
-		} else if idempotencyKey != "" && current.LastIdempotencyKey == idempotencyKey {
-			out = &current
+		if !isNew && idempotencyKey != "" && current.LastIdempotencyKey == idempotencyKey {
+			out = current
 			return nil
 		}
-
 		if expectedVersion >= 0 && current.Version != expectedVersion {
-			cp := current
+			cp := *current
 			out = &cp
 			return ErrPreferenceVersionConflict
 		}
 
-		mutate(&current)
+		mutate(current)
 		current.UserID = userID
 		current.ChatID = chatID
 		current.Version++
@@ -157,19 +148,34 @@ func (r *PreferenceRepo) UpsertChatPrefCAS(
 			current.LastIdempotencyKey = idempotencyKey
 		}
 
-		if isNew {
-			if err := tx.Create(&current).Error; err != nil {
-				return err
-			}
-		} else {
-			if err := tx.Save(&current).Error; err != nil {
-				return err
-			}
+		if err := persistChatPref(tx, current, isNew); err != nil {
+			return err
 		}
-		out = &current
+		out = current
 		return nil
 	})
 	return out, err
+}
+
+func loadOrInitChatPref(tx *gorm.DB, userID, chatID uint) (*models.UserChatPreference, bool, error) {
+	var current models.UserChatPreference
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("user_id = ? AND chat_id = ?", userID, chatID).
+		First(&current).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return models.DefaultUserChatPreference(userID, chatID), true, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return &current, false, nil
+}
+
+func persistChatPref(tx *gorm.DB, current *models.UserChatPreference, isNew bool) error {
+	if isNew {
+		return tx.Create(current).Error
+	}
+	return tx.Save(current).Error
 }
 
 // DeleteByChat removes all per-user preference rows when a chat is deleted.

@@ -390,4 +390,3 @@ func TestPreferenceRepo_AccountAndChatCAS(t *testing.T) {
 		t.Fatalf("expected empty chat prefs after DeleteByChat, got %v, %v", list, err)
 	}
 }
-

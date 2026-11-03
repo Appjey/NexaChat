@@ -131,16 +131,16 @@ func DefaultUserPreference(userID uint) *UserPreference {
 // DefaultUserChatPreference returns the default (all-inherit) per-chat preference record.
 func DefaultUserChatPreference(userID, chatID uint) *UserChatPreference {
 	return &UserChatPreference{
-		UserID:                 userID,
-		ChatID:                 chatID,
-		Version:                0,
-		ThemeMode:              PrefModeInherit,
-		WallpaperMode:          PrefModeInherit,
-		SoundMode:              PrefModeInherit,
-		Muted:                  false,
-		SharedThemeMode:        PrefModeInherit,
-		SharedWallpaperMode:    PrefModeInherit,
-		SharedSoundMode:        PrefModeInherit,
-		ExtraFieldsJSON:        "{}",
+		UserID:              userID,
+		ChatID:              chatID,
+		Version:             0,
+		ThemeMode:           PrefModeInherit,
+		WallpaperMode:       PrefModeInherit,
+		SoundMode:           PrefModeInherit,
+		Muted:               false,
+		SharedThemeMode:     PrefModeInherit,
+		SharedWallpaperMode: PrefModeInherit,
+		SharedSoundMode:     PrefModeInherit,
+		ExtraFieldsJSON:     "{}",
 	}
 }

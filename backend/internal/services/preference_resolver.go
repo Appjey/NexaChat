@@ -42,12 +42,12 @@ type EffectiveChatPreference struct {
 // LastKnownGoodPrefs holds optional last-known-good preset/custom values on a device
 // for safe fallback when a newly synced preset ID or custom asset is unavailable.
 type LastKnownGoodPrefs struct {
-	ThemeID      string
-	Appearance   models.AppearanceMode
+	ThemeID       string
+	Appearance    models.AppearanceMode
 	WallpaperMode models.PreferenceValueMode
-	WallpaperID  string
-	SoundMode    models.PreferenceValueMode
-	SoundID      string
+	WallpaperID   string
+	SoundMode     models.PreferenceValueMode
+	SoundID       string
 }
 
 var (
@@ -135,43 +135,68 @@ func ResolveEffectiveChatPreference(
 	}
 }
 
+type candidateTriplet struct {
+	present bool
+	mode    models.PreferenceValueMode
+	id      string
+	version int
+}
+
+func selectPriorityCandidate(
+	personal, shared, global candidateTriplet,
+	isExplicit func(models.PreferenceValueMode) bool,
+	defaultField ResolvedField,
+) (ResolvedField, bool) {
+	if personal.present && isExplicit(personal.mode) {
+		return ResolvedField{
+			Mode:    personal.mode,
+			ID:      personal.id,
+			Version: personal.version,
+			Source:  SourcePersonalOverride,
+		}, false
+	}
+	if shared.present && isExplicit(shared.mode) {
+		return ResolvedField{
+			Mode:    shared.mode,
+			ID:      shared.id,
+			Version: shared.version,
+			Source:  SourceAcceptedShared,
+		}, false
+	}
+	if global.present && isExplicit(global.mode) {
+		return ResolvedField{
+			Mode:    global.mode,
+			ID:      global.id,
+			Version: global.version,
+			Source:  SourceAccountGlobal,
+		}, false
+	}
+	return defaultField, true
+}
+
 func resolveThemeField(
 	acc *models.UserPreference,
 	chatPref *models.UserChatPreference,
 	lkg *LastKnownGoodPrefs,
 ) ResolvedField {
-	var raw ResolvedField
-	switch {
-	case chatPref != nil && isExplicitThemeMode(chatPref.ThemeMode):
-		raw = ResolvedField{
-			Mode:    chatPref.ThemeMode,
-			ID:      chatPref.ThemeID,
-			Version: chatPref.ThemeVersion,
-			Source:  SourcePersonalOverride,
-		}
-	case chatPref != nil && isExplicitThemeMode(chatPref.SharedThemeMode):
-		raw = ResolvedField{
-			Mode:    chatPref.SharedThemeMode,
-			ID:      chatPref.SharedThemeID,
-			Version: chatPref.SharedThemeVersion,
-			Source:  SourceAcceptedShared,
-		}
-	case acc != nil && isExplicitThemeMode(acc.ThemeMode):
-		raw = ResolvedField{
-			Mode:    acc.ThemeMode,
-			ID:      acc.ThemeID,
-			Version: acc.ThemeVersion,
-			Source:  SourceAccountGlobal,
-		}
-	default:
-		return ResolvedField{
-			Mode:    models.PrefModePreset,
-			ID:      "nexachat",
-			Version: 1,
-			Source:  SourceBuiltInDefault,
-		}
+	var personal, shared, global candidateTriplet
+	if chatPref != nil {
+		personal = candidateTriplet{true, chatPref.ThemeMode, chatPref.ThemeID, chatPref.ThemeVersion}
+		shared = candidateTriplet{true, chatPref.SharedThemeMode, chatPref.SharedThemeID, chatPref.SharedThemeVersion}
+	}
+	if acc != nil {
+		global = candidateTriplet{true, acc.ThemeMode, acc.ThemeID, acc.ThemeVersion}
 	}
 
+	raw, isDefault := selectPriorityCandidate(personal, shared, global, isExplicitThemeMode, ResolvedField{
+		Mode:    models.PrefModePreset,
+		ID:      "nexachat",
+		Version: 1,
+		Source:  SourceBuiltInDefault,
+	})
+	if isDefault {
+		return raw
+	}
 	if raw.Mode == models.PrefModePreset && IsSupportedThemeID(raw.ID) {
 		return raw
 	}
@@ -218,37 +243,23 @@ func resolveWallpaperField(
 	chatPref *models.UserChatPreference,
 	lkg *LastKnownGoodPrefs,
 ) ResolvedField {
-	var raw ResolvedField
-	switch {
-	case chatPref != nil && isExplicitWallpaperMode(chatPref.WallpaperMode):
-		raw = ResolvedField{
-			Mode:    chatPref.WallpaperMode,
-			ID:      chatPref.WallpaperID,
-			Version: chatPref.WallpaperVersion,
-			Source:  SourcePersonalOverride,
-		}
-	case chatPref != nil && isExplicitWallpaperMode(chatPref.SharedWallpaperMode):
-		raw = ResolvedField{
-			Mode:    chatPref.SharedWallpaperMode,
-			ID:      chatPref.SharedWallpaperID,
-			Version: chatPref.SharedWallpaperVersion,
-			Source:  SourceAcceptedShared,
-		}
-	case acc != nil && isExplicitWallpaperMode(acc.WallpaperMode):
-		raw = ResolvedField{
-			Mode:    acc.WallpaperMode,
-			ID:      acc.WallpaperID,
-			Version: acc.WallpaperVersion,
-			Source:  SourceAccountGlobal,
-		}
-	default:
-		return ResolvedField{
-			Mode:   models.PrefModeNone,
-			ID:     "",
-			Source: SourceBuiltInDefault,
-		}
+	var personal, shared, global candidateTriplet
+	if chatPref != nil {
+		personal = candidateTriplet{true, chatPref.WallpaperMode, chatPref.WallpaperID, chatPref.WallpaperVersion}
+		shared = candidateTriplet{true, chatPref.SharedWallpaperMode, chatPref.SharedWallpaperID, chatPref.SharedWallpaperVersion}
+	}
+	if acc != nil {
+		global = candidateTriplet{true, acc.WallpaperMode, acc.WallpaperID, acc.WallpaperVersion}
 	}
 
+	raw, isDefault := selectPriorityCandidate(personal, shared, global, isExplicitWallpaperMode, ResolvedField{
+		Mode:   models.PrefModeNone,
+		ID:     "",
+		Source: SourceBuiltInDefault,
+	})
+	if isDefault {
+		return raw
+	}
 	if raw.Mode == models.PrefModeNone {
 		raw.ID = ""
 		return raw
@@ -259,14 +270,16 @@ func resolveWallpaperField(
 	if raw.Mode == models.PrefModeCustom && raw.ID != "" && raw.Version > 0 {
 		return raw
 	}
+	return fallbackWallpaperField(raw.Source, lkg)
+}
 
-	// Fallback to lastKnownGood or built-in default (none).
+func fallbackWallpaperField(source ResolutionSource, lkg *LastKnownGoodPrefs) ResolvedField {
 	if lkg != nil {
 		if lkg.WallpaperMode == models.PrefModeNone {
 			return ResolvedField{
 				Mode:            models.PrefModeNone,
 				ID:              "",
-				Source:          raw.Source,
+				Source:          source,
 				FallbackApplied: true,
 			}
 		}
@@ -275,7 +288,7 @@ func resolveWallpaperField(
 				Mode:            models.PrefModePreset,
 				ID:              lkg.WallpaperID,
 				Version:         1,
-				Source:          raw.Source,
+				Source:          source,
 				FallbackApplied: true,
 			}
 		}
@@ -283,7 +296,7 @@ func resolveWallpaperField(
 	return ResolvedField{
 		Mode:            models.PrefModeNone,
 		ID:              "",
-		Source:          raw.Source,
+		Source:          source,
 		FallbackApplied: true,
 	}
 }
@@ -293,38 +306,24 @@ func resolveSoundField(
 	chatPref *models.UserChatPreference,
 	lkg *LastKnownGoodPrefs,
 ) ResolvedField {
-	var raw ResolvedField
-	switch {
-	case chatPref != nil && isExplicitSoundMode(chatPref.SoundMode):
-		raw = ResolvedField{
-			Mode:    chatPref.SoundMode,
-			ID:      chatPref.SoundID,
-			Version: chatPref.SoundVersion,
-			Source:  SourcePersonalOverride,
-		}
-	case chatPref != nil && isExplicitSoundMode(chatPref.SharedSoundMode):
-		raw = ResolvedField{
-			Mode:    chatPref.SharedSoundMode,
-			ID:      chatPref.SharedSoundID,
-			Version: chatPref.SharedSoundVersion,
-			Source:  SourceAcceptedShared,
-		}
-	case acc != nil && isExplicitSoundMode(acc.SoundMode):
-		raw = ResolvedField{
-			Mode:    acc.SoundMode,
-			ID:      acc.SoundID,
-			Version: acc.SoundVersion,
-			Source:  SourceAccountGlobal,
-		}
-	default:
-		return ResolvedField{
-			Mode:    models.PrefModePreset,
-			ID:      "nexa",
-			Version: 1,
-			Source:  SourceBuiltInDefault,
-		}
+	var personal, shared, global candidateTriplet
+	if chatPref != nil {
+		personal = candidateTriplet{true, chatPref.SoundMode, chatPref.SoundID, chatPref.SoundVersion}
+		shared = candidateTriplet{true, chatPref.SharedSoundMode, chatPref.SharedSoundID, chatPref.SharedSoundVersion}
+	}
+	if acc != nil {
+		global = candidateTriplet{true, acc.SoundMode, acc.SoundID, acc.SoundVersion}
 	}
 
+	raw, isDefault := selectPriorityCandidate(personal, shared, global, isExplicitSoundMode, ResolvedField{
+		Mode:    models.PrefModePreset,
+		ID:      "nexa",
+		Version: 1,
+		Source:  SourceBuiltInDefault,
+	})
+	if isDefault {
+		return raw
+	}
 	if raw.Mode == models.PrefModeNone || raw.Mode == models.PrefModeSystem {
 		raw.ID = ""
 		return raw
@@ -335,14 +334,16 @@ func resolveSoundField(
 	if raw.Mode == models.PrefModeCustom && raw.ID != "" && raw.Version > 0 {
 		return raw
 	}
+	return fallbackSoundField(raw.Source, lkg)
+}
 
-	// Fallback to lastKnownGood or built-in default ("nexa").
+func fallbackSoundField(source ResolutionSource, lkg *LastKnownGoodPrefs) ResolvedField {
 	if lkg != nil {
 		if lkg.SoundMode == models.PrefModeNone || lkg.SoundMode == models.PrefModeSystem {
 			return ResolvedField{
 				Mode:            lkg.SoundMode,
 				ID:              "",
-				Source:          raw.Source,
+				Source:          source,
 				FallbackApplied: true,
 			}
 		}
@@ -351,7 +352,7 @@ func resolveSoundField(
 				Mode:            models.PrefModePreset,
 				ID:              lkg.SoundID,
 				Version:         1,
-				Source:          raw.Source,
+				Source:          source,
 				FallbackApplied: true,
 			}
 		}
@@ -360,7 +361,7 @@ func resolveSoundField(
 		Mode:            models.PrefModePreset,
 		ID:              "nexa",
 		Version:         1,
-		Source:          raw.Source,
+		Source:          source,
 		FallbackApplied: true,
 	}
 }
